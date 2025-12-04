@@ -9,12 +9,12 @@
   ],
   "main": "src/index.tsx",
   "dependencies": {
+    "firebase": "^12.6.0",
     "loader-utils": "3.2.1",
+    "lucide-react": "^0.555.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-scripts": "5.0.1",
-    "firebase": "12.6.0",
-    "lucide-react": "0.555.0",
     "xlsx": "0.18.5"
   },
   "devDependencies": {

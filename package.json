@@ -7,7 +7,7 @@
     "react",
     "starter"
   ],
-  "main": "src/index.tsx",
+  "main": "src/index.js",
   "dependencies": {
     "firebase": "^12.6.0",
     "loader-utils": "3.2.1",

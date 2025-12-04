@@ -748,9 +748,15 @@ export default function InventorySystem() {
       <header className="bg-slate-900 text-white p-4 shadow-lg sticky top-0 z-20">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className="bg-blue-600 p-2 rounded-lg"><Package size={24} /></div>
+            {/* --- INÍCIO DA TROCA DO LOGO --- */}
+<div className="h-10 w-10 bg-white rounded-lg flex items-center justify-center overflow-hidden">
+  {/* Se tiver o link da imagem, use a linha de baixo (tira as barras // do começo): */}
+  {<img src="https://www.semprejoias.com.br/favicon/34692/sjoiasfav.png" alt="Logo" className="w-full h-full object-contain" /> }
+  
+
+</div>
             <div className="flex-1">
-              <h1 className="text-xl font-bold">Estoque <span className="text-blue-400">Pro</span></h1>
+              <h1 className="text-xl font-bold">Estoque Sempre Joias <span className="text-blue-400">Pro</span></h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>Operador: <strong className="text-white">{operatorName}</strong></span>
                 <span className="w-1 h-1 bg-slate-600 rounded-full"></span>

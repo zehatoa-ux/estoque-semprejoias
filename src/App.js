@@ -41,7 +41,7 @@ import {
   Save,
   List,
   XCircle,
-  AlertOctagon,
+  AlertOctagon
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
@@ -145,15 +145,23 @@ export default function InventorySystem() {
   const [barcodeInput, setBarcodeInput] = useState("");
   const [salesInput, setSalesInput] = useState("");
   const [notification, setNotification] = useState(null);
-
+  
   // --- DEBOUNCE ---
-  const [searchTerm, setSearchTerm] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-
+  const [searchTerm, setSearchTerm] = useState(""); 
+  const [debouncedSearch, setDebouncedSearch] = useState(""); 
+  
   const [filterModel, setFilterModel] = useState("all");
 
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // --- HELPER: NORMALIZAÇÃO DE TEXTO (IGNORAR ACENTOS) ---
+  const normalizeText = (text) => {
+    return String(text || "")
+      .normalize("NFD") // Separa acentos das letras
+      .replace(/[\u0300-\u036f]/g, "") // Remove os acentos
+      .toLowerCase(); // Tudo minúsculo
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -429,17 +437,14 @@ export default function InventorySystem() {
     if (!scannedSku) return null;
     const cleanSku = scannedSku.toUpperCase().trim();
     if (catalogMap.has(cleanSku)) {
-      return { ...catalogMap.get(cleanSku), baseSku: cleanSku };
+        return { ...catalogMap.get(cleanSku), baseSku: cleanSku };
     }
-    const parts = cleanSku.split("-");
+    const parts = cleanSku.split('-');
     if (parts.length > 1) {
       for (let i = parts.length - 1; i >= 1; i--) {
-        const potentialParentSku = parts.slice(0, i).join("-");
+        const potentialParentSku = parts.slice(0, i).join('-');
         if (catalogMap.has(potentialParentSku)) {
-          return {
-            ...catalogMap.get(potentialParentSku),
-            baseSku: potentialParentSku,
-          };
+             return { ...catalogMap.get(potentialParentSku), baseSku: potentialParentSku };
         }
       }
     }
@@ -480,102 +485,78 @@ export default function InventorySystem() {
         tempId: Date.now() + Math.random(),
         sku,
         baseSku: catalogInfo ? catalogInfo.sku : null,
-        name: catalogInfo ? catalogInfo.name : "Item não identificado",
+        name: catalogInfo ? catalogInfo.name : 'Item não identificado',
         image: catalogInfo ? catalogInfo.image : null,
         status: "in_stock",
         addedBy: operatorName,
         timestamp: new Date(),
         dateIn: new Date().toLocaleString("pt-BR"),
       };
-      setScannedBuffer((prev) => [newItem, ...prev]);
+      setScannedBuffer(prev => [newItem, ...prev]);
       setBarcodeInput("");
     }
   };
 
   const handleCommitBuffer = async () => {
     if (scannedBuffer.length === 0) return;
-    if (
-      !window.confirm(
-        `Confirmar envio de ${scannedBuffer.length} itens para o estoque?`
-      )
-    )
-      return;
+    if (!window.confirm(`Confirmar envio de ${scannedBuffer.length} itens para o estoque?`)) return;
     if (!db || !user) {
-      showNotification("Sem conexão com banco de dados.", "error");
-      return;
+        showNotification("Sem conexão com banco de dados.", "error");
+        return;
     }
     setIsCommitting(true);
     const chunkSize = 450;
     const chunks = [];
     for (let i = 0; i < scannedBuffer.length; i += chunkSize) {
-      chunks.push(scannedBuffer.slice(i, i + chunkSize));
+        chunks.push(scannedBuffer.slice(i, i + chunkSize));
     }
     try {
-      let totalAdded = 0;
-      for (const chunk of chunks) {
-        const batch = writeBatch(db);
-        chunk.forEach((item) => {
-          const docRef = doc(
-            collection(
-              db,
-              "artifacts",
-              appId,
-              "public",
-              "data",
-              "inventory_items"
-            )
-          );
-          batch.set(docRef, {
-            sku: item.sku,
-            baseSku: item.baseSku,
-            status: "in_stock",
-            addedBy: item.addedBy,
-            timestamp: serverTimestamp(),
-            dateIn: item.dateIn,
-            dateOut: null,
-          });
-        });
-        await batch.commit();
-        totalAdded += chunk.length;
-      }
-      showNotification(
-        `Sucesso! ${totalAdded} itens adicionados ao estoque.`,
-        "success"
-      );
-      setScannedBuffer([]);
-      setBufferPage(1);
+        let totalAdded = 0;
+        for (const chunk of chunks) {
+            const batch = writeBatch(db);
+            chunk.forEach(item => {
+                const docRef = doc(collection(db, "artifacts", appId, "public", "data", "inventory_items"));
+                batch.set(docRef, {
+                    sku: item.sku,
+                    baseSku: item.baseSku,
+                    status: 'in_stock',
+                    addedBy: item.addedBy,
+                    timestamp: serverTimestamp(),
+                    dateIn: item.dateIn,
+                    dateOut: null
+                });
+            });
+            await batch.commit();
+            totalAdded += chunk.length;
+        }
+        showNotification(`Sucesso! ${totalAdded} itens adicionados ao estoque.`, "success");
+        setScannedBuffer([]);
+        setBufferPage(1);
     } catch (err) {
-      console.error(err);
-      showNotification(
-        "Erro ao enviar alguns itens. Tente novamente.",
-        "error"
-      );
+        console.error(err);
+        showNotification("Erro ao enviar alguns itens. Tente novamente.", "error");
     } finally {
-      setIsCommitting(false);
+        setIsCommitting(false);
     }
   };
 
   const handleClearBuffer = () => {
     if (scannedBuffer.length === 0) return;
-    if (
-      window.confirm(
-        "Tem certeza? Isso vai apagar a leitura atual (NÃO afeta o estoque salvo)."
-      )
-    ) {
-      setScannedBuffer([]);
-      setBufferPage(1);
-      showNotification("Leitura descartada.", "warning");
+    if (window.confirm("Tem certeza? Isso vai apagar a leitura atual (NÃO afeta o estoque salvo).")) {
+        setScannedBuffer([]);
+        setBufferPage(1);
+        showNotification("Leitura descartada.", "warning");
     }
   };
 
   const removeItemFromBuffer = (tempId) => {
-    setScannedBuffer((prev) => prev.filter((item) => item.tempId !== tempId));
+      setScannedBuffer(prev => prev.filter(item => item.tempId !== tempId));
   };
 
   const bufferItemsPerPage = 10;
   const paginatedBuffer = useMemo(() => {
-    const start = (bufferPage - 1) * bufferItemsPerPage;
-    return scannedBuffer.slice(start, start + bufferItemsPerPage);
+      const start = (bufferPage - 1) * bufferItemsPerPage;
+      return scannedBuffer.slice(start, start + bufferItemsPerPage);
   }, [scannedBuffer, bufferPage]);
   const totalBufferPages = Math.ceil(scannedBuffer.length / bufferItemsPerPage);
 
@@ -591,56 +572,38 @@ export default function InventorySystem() {
   };
 
   // --- NOVA LÓGICA DE RESERVAS (FIFO) ---
-  // Calcula o status de cada reserva baseada na ordem de chegada e estoque atual
   const reservationsWithStatus = useMemo(() => {
-    // 1. Agrupar Reservas por SKU
     const skus = {};
-    reservations.forEach((r) => {
-      if (!skus[r.sku]) skus[r.sku] = [];
-      skus[r.sku].push(r);
+    reservations.forEach(r => {
+        if(!skus[r.sku]) skus[r.sku] = [];
+        skus[r.sku].push(r);
     });
 
-    // 2. Processar cada SKU
     const processed = [];
-    Object.keys(skus).forEach((sku) => {
-      // Pega estoque físico total disponível na prateleira
-      let physicalStock = inventory.filter(
-        (i) => i.sku === sku && i.status === "in_stock"
-      ).length;
+    Object.keys(skus).forEach(sku => {
+        let physicalStock = inventory.filter(i => i.sku === sku && i.status === 'in_stock').length;
+        const sorted = skus[sku].sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 
-      // Ordena reservas da mais antiga para a mais nova (FIFO)
-      // Quem pediu primeiro, leva primeiro.
-      const sorted = skus[sku].sort(
-        (a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0)
-      );
+        sorted.forEach(res => {
+            let status = 'ok'; 
+            let missing = 0;
 
-      sorted.forEach((res) => {
-        let status = "ok"; // Verde (Tem estoque)
-        let missing = 0;
-
-        if (physicalStock >= res.quantity) {
-          // Tem estoque suficiente pra cobrir essa reserva
-          physicalStock -= res.quantity;
-        } else if (physicalStock > 0) {
-          // Tem um pouco, mas não tudo (Parcial)
-          status = "partial";
-          missing = res.quantity - physicalStock;
-          physicalStock = 0; // Zerou o estoque pra próxima reserva
-        } else {
-          // Não tem nada pra essa reserva
-          status = "missing";
-          missing = res.quantity;
-        }
-
-        processed.push({ ...res, status, missing });
-      });
+            if (physicalStock >= res.quantity) {
+                physicalStock -= res.quantity;
+            } else if (physicalStock > 0) {
+                status = 'partial';
+                missing = res.quantity - physicalStock;
+                physicalStock = 0; 
+            } else {
+                status = 'missing'; 
+                missing = res.quantity;
+            }
+            processed.push({ ...res, status, missing });
+        });
     });
-
-    // Retorna a lista plana ordenada por data geral para exibição na tabela
-    return processed.sort(
-      (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
-    );
+    return processed.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   }, [reservations, inventory]);
+
 
   const reduceReservationsIfNecessary = (batch, sku, qtySold) => {
     const { physical, reserved } = getAvailability(sku);
@@ -870,39 +833,37 @@ export default function InventorySystem() {
       )
     )
       return;
-
+    
     const confirmCode = Math.floor(1000 + Math.random() * 9000);
-    const userInput = window.prompt(
-      `Para confirmar, digite o código: ${confirmCode}`
-    );
-
+    const userInput = window.prompt(`Para confirmar, digite o código: ${confirmCode}`);
+    
     if (userInput !== String(confirmCode)) {
-      showNotification("Código incorreto. Cancelado.", "error");
-      return;
+        showNotification("Código incorreto. Cancelado.", "error");
+        return;
     }
 
     if (!db) return;
-
+    
     try {
-      const q = query(
+        const q = query(
         collection(db, "artifacts", appId, "public", "data", "inventory_items"),
         where("status", "==", "in_stock")
-      );
-      const snapshot = await getDocs(q);
+        );
+        const snapshot = await getDocs(q);
+        
+        const chunkSize = 400;
+        const chunks = [];
+        for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
+            chunks.push(snapshot.docs.slice(i, i + chunkSize));
+        }
 
-      const chunkSize = 400;
-      const chunks = [];
-      for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
-        chunks.push(snapshot.docs.slice(i, i + chunkSize));
-      }
+        for (const chunk of chunks) {
+            const batch = writeBatch(db);
+            chunk.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+        }
 
-      for (const chunk of chunks) {
-        const batch = writeBatch(db);
-        chunk.forEach((doc) => batch.delete(doc.ref));
-        await batch.commit();
-      }
-
-      showNotification("Estoque ZERADO com sucesso.", "success");
+        showNotification("Estoque ZERADO com sucesso.", "success");
     } catch (e) {
       showNotification("Erro ao zerar estoque.", "error");
     }
@@ -1253,7 +1214,7 @@ export default function InventorySystem() {
     reportEndDate,
     activeTab,
     catalog,
-    catalogMap,
+    catalogMap
   ]);
 
   const paginatedReportData = useMemo(() => {
@@ -1355,15 +1316,18 @@ export default function InventorySystem() {
     });
 
     return Object.values(groups);
-  }, [inventory, catalog, reservations, catalogMap]);
+  }, [inventory, catalog, reservations, catalogMap]); 
 
-  // --- FILTRAGEM SEGURA (CORREÇÃO DE ERRO E PERFORMANCE) ---
+  // --- FILTRAGEM SEGURA E NORMALIZADA ---
   const filteredAndSortedGroups = useMemo(() => {
     let result = groupedInventory.filter((group) => {
-      const searchLower = debouncedSearch.toLowerCase();
-      const skuStr = String(group.sku || "").toLowerCase();
-      const nameStr = String(group.name || "").toLowerCase();
-      const modelStr = String(group.model || "").toLowerCase();
+      // 1. Normaliza a busca
+      const searchLower = normalizeText(debouncedSearch); 
+      
+      // 2. Normaliza os campos do produto
+      const skuStr = normalizeText(group.sku);
+      const nameStr = normalizeText(group.name);
+      const modelStr = normalizeText(group.model);
 
       return (
         (skuStr.includes(searchLower) ||
@@ -1691,7 +1655,7 @@ export default function InventorySystem() {
               />
             </div>
             <div className="flex-1">
-              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.6</h1>
+              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.7</h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>
                   Operador:{" "}
@@ -1847,149 +1811,126 @@ export default function InventorySystem() {
 
             {/* ÁREA DO BUFFER */}
             <div className="w-full max-w-3xl">
-              <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-                <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <List size={20} className="text-blue-600" />
-                    <h3 className="font-bold text-slate-700">
-                      Itens Lidos na Sessão: {scannedBuffer.length}
-                    </h3>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleClearBuffer}
-                      disabled={scannedBuffer.length === 0 || isCommitting}
-                      className="px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-100 transition-colors disabled:opacity-50"
-                    >
-                      DESCARTAR
-                    </button>
-                    <button
-                      onClick={handleCommitBuffer}
-                      disabled={scannedBuffer.length === 0 || isCommitting}
-                      className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isCommitting ? (
-                        <RefreshCw className="animate-spin" size={14} />
-                      ) : (
-                        <Save size={14} />
-                      )}
-                      {isCommitting ? "ENVIANDO..." : "ENVIAR PRO ESTOQUE"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="max-h-[400px] overflow-y-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-100 text-xs text-slate-500 uppercase font-bold sticky top-0">
-                      <tr>
-                        <th className="px-4 py-3">SKU</th>
-                        <th className="px-4 py-3">Produto</th>
-                        <th className="px-4 py-3 w-10"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {paginatedBuffer.map((item) => (
-                        <tr key={item.tempId} className="hover:bg-blue-50/50">
-                          <td className="px-4 py-2 font-mono font-bold text-blue-600 text-xs">
-                            {item.sku}
-                          </td>
-                          <td className="px-4 py-2">
-                            <span className="block text-xs font-medium text-slate-700 truncate max-w-[200px]">
-                              {item.name}
-                            </span>
-                            <span className="text-[10px] text-slate-400">
-                              {item.baseSku}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            <button
-                              onClick={() => removeItemFromBuffer(item.tempId)}
-                              className="text-slate-300 hover:text-red-500 p-1"
-                              title="Remover da lista"
+                <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                    <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                            <List size={20} className="text-blue-600" />
+                            <h3 className="font-bold text-slate-700">Itens Lidos na Sessão: {scannedBuffer.length}</h3>
+                        </div>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={handleClearBuffer}
+                                disabled={scannedBuffer.length === 0 || isCommitting}
+                                className="px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-100 transition-colors disabled:opacity-50"
                             >
-                              <X size={14} />
+                                DESCARTAR
                             </button>
-                          </td>
-                        </tr>
-                      ))}
-                      {scannedBuffer.length === 0 && (
-                        <tr>
-                          <td
-                            colSpan="3"
-                            className="px-6 py-12 text-center text-slate-400"
-                          >
-                            <div className="flex flex-col items-center gap-2">
-                              <Barcode size={32} className="opacity-20" />
-                              <p>Lista vazia. Comece a bipar!</p>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                {/* Paginação Simples do Buffer */}
-                {totalBufferPages > 1 && (
-                  <div className="bg-slate-50 px-4 py-2 border-t flex justify-between items-center text-xs text-slate-500">
-                    <span>
-                      Página {bufferPage} de {totalBufferPages}
-                    </span>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => setBufferPage((p) => Math.max(1, p - 1))}
-                        disabled={bufferPage === 1}
-                        className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
-                      >
-                        <ChevronLeft size={14} />
-                      </button>
-                      <button
-                        onClick={() =>
-                          setBufferPage((p) =>
-                            Math.min(totalBufferPages, p + 1)
-                          )
-                        }
-                        disabled={bufferPage === totalBufferPages}
-                        className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
-                      >
-                        <ChevronRight size={14} />
-                      </button>
+                            <button 
+                                onClick={handleCommitBuffer}
+                                disabled={scannedBuffer.length === 0 || isCommitting}
+                                className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isCommitting ? <RefreshCw className="animate-spin" size={14} /> : <Save size={14} />}
+                                {isCommitting ? "ENVIANDO..." : "ENVIAR PRO ESTOQUE"}
+                            </button>
+                        </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                    
+                    <div className="max-h-[400px] overflow-y-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-100 text-xs text-slate-500 uppercase font-bold sticky top-0">
+                                <tr>
+                                    <th className="px-4 py-3">SKU</th>
+                                    <th className="px-4 py-3">Produto</th>
+                                    <th className="px-4 py-3 w-10"></th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {paginatedBuffer.map((item) => (
+                                    <tr key={item.tempId} className="hover:bg-blue-50/50">
+                                        <td className="px-4 py-2 font-mono font-bold text-blue-600 text-xs">{item.sku}</td>
+                                        <td className="px-4 py-2">
+                                            <span className="block text-xs font-medium text-slate-700 truncate max-w-[200px]">{item.name}</span>
+                                            <span className="text-[10px] text-slate-400">{item.baseSku}</span>
+                                        </td>
+                                        <td className="px-4 py-2 text-right">
+                                            <button 
+                                                onClick={() => removeItemFromBuffer(item.tempId)}
+                                                className="text-slate-300 hover:text-red-500 p-1"
+                                                title="Remover da lista"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {scannedBuffer.length === 0 && (
+                                    <tr>
+                                        <td colSpan="3" className="px-6 py-12 text-center text-slate-400">
+                                            <div className="flex flex-col items-center gap-2">
+                                                <Barcode size={32} className="opacity-20" />
+                                                <p>Lista vazia. Comece a bipar!</p>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    {/* Paginação Simples do Buffer */}
+                    {totalBufferPages > 1 && (
+                        <div className="bg-slate-50 px-4 py-2 border-t flex justify-between items-center text-xs text-slate-500">
+                            <span>Página {bufferPage} de {totalBufferPages}</span>
+                            <div className="flex gap-1">
+                                <button 
+                                    onClick={() => setBufferPage(p => Math.max(1, p - 1))}
+                                    disabled={bufferPage === 1}
+                                    className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
+                                >
+                                    <ChevronLeft size={14} />
+                                </button>
+                                <button 
+                                    onClick={() => setBufferPage(p => Math.min(totalBufferPages, p + 1))}
+                                    disabled={bufferPage === totalBufferPages}
+                                    className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
+                                >
+                                    <ChevronRight size={14} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
           </div>
         )}
 
         {/* --- NOVA ABA CONFIGURAÇÕES (DANGER ZONE) --- */}
         {activeTab === "config" && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="w-full max-w-2xl">
-              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-8 text-center shadow-lg">
-                <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <ShieldAlert size={48} />
-                </div>
-                <h2 className="text-2xl font-bold text-red-800 mb-2">
-                  Zona de Perigo
-                </h2>
-                <p className="text-red-600 mb-8 max-w-md mx-auto">
-                  Ações nesta área são irreversíveis e afetam todo o banco de
-                  dados. Use apenas se souber exatamente o que está fazendo.
-                </p>
+            <div className="flex flex-col items-center justify-center py-12">
+                <div className="w-full max-w-2xl">
+                    <div className="bg-red-50 border-2 border-red-200 rounded-xl p-8 text-center shadow-lg">
+                        <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <ShieldAlert size={48} />
+                        </div>
+                        <h2 className="text-2xl font-bold text-red-800 mb-2">Zona de Perigo</h2>
+                        <p className="text-red-600 mb-8 max-w-md mx-auto">
+                            Ações nesta área são irreversíveis e afetam todo o banco de dados. 
+                            Use apenas se souber exatamente o que está fazendo.
+                        </p>
 
-                <button
-                  onClick={handleResetStock}
-                  className="bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-3 mx-auto"
-                >
-                  <Trash2 size={24} />
-                  APAGAR TODO O ESTOQUE
-                </button>
-                <p className="mt-4 text-xs text-red-400 font-bold uppercase tracking-widest">
-                  Requer confirmação dupla + código de segurança
-                </p>
-              </div>
+                        <button
+                            onClick={handleResetStock}
+                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-3 mx-auto"
+                        >
+                            <Trash2 size={24} />
+                            APAGAR TODO O ESTOQUE
+                        </button>
+                        <p className="mt-4 text-xs text-red-400 font-bold uppercase tracking-widest">
+                            Requer confirmação dupla + código de segurança
+                        </p>
+                    </div>
+                </div>
             </div>
-          </div>
         )}
 
         {activeTab === "stock" && (
@@ -2385,24 +2326,21 @@ export default function InventorySystem() {
                             />
                           </td>
                           <td className="px-4 py-3">
-                            {res.status === "ok" && (
-                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-green-100 text-green-700 px-2 py-1 rounded">
-                                <CheckCircle size={10} /> OK
-                              </span>
-                            )}
-                            {res.status === "partial" && (
-                              <span
-                                className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded"
-                                title={`Faltam ${res.missing} peças`}
-                              >
-                                <AlertOctagon size={10} /> Parcial
-                              </span>
-                            )}
-                            {res.status === "missing" && (
-                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-1 rounded">
-                                <XCircle size={10} /> Sem Estoque
-                              </span>
-                            )}
+                             {res.status === 'ok' && (
+                                <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-green-100 text-green-700 px-2 py-1 rounded">
+                                    <CheckCircle size={10} /> OK
+                                </span>
+                             )}
+                             {res.status === 'partial' && (
+                                <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded" title={`Faltam ${res.missing} peças`}>
+                                    <AlertOctagon size={10} /> Parcial
+                                </span>
+                             )}
+                             {res.status === 'missing' && (
+                                <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-1 rounded">
+                                    <XCircle size={10} /> Sem Estoque
+                                </span>
+                             )}
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-500">
                             {res.dateStr?.split(" ")[0] || "-"}

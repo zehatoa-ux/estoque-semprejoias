@@ -40,6 +40,8 @@ import {
   Settings,
   Save,
   List,
+  XCircle,
+  AlertOctagon,
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
@@ -96,8 +98,8 @@ export default function InventorySystem() {
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [catalogSource, setCatalogSource] = useState("none");
 
-  // --- BUFFER SYSTEM (NOVO) ---
-  const [scannedBuffer, setScannedBuffer] = useState([]); // Lista temporária
+  // --- BUFFER SYSTEM ---
+  const [scannedBuffer, setScannedBuffer] = useState([]);
   const [bufferPage, setBufferPage] = useState(1);
   const [isCommitting, setIsCommitting] = useState(false);
 
@@ -144,7 +146,7 @@ export default function InventorySystem() {
   const [salesInput, setSalesInput] = useState("");
   const [notification, setNotification] = useState(null);
 
-  // --- CORREÇÃO DE PERFORMANCE (DEBOUNCE) ---
+  // --- DEBOUNCE ---
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -153,7 +155,6 @@ export default function InventorySystem() {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // --- OTIMIZAÇÃO: EFEITO DEBOUNCE ---
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
@@ -218,7 +219,7 @@ export default function InventorySystem() {
     }
   }, []);
 
-  // --- 2. CATALOG PROCESSING ---
+  // --- 2. CATALOG & FETCHERS ---
   const processCatalogData = (rows) => {
     if (!rows || rows.length === 0) return [];
     const headers = rows[0].map((h) => String(h).trim().toLowerCase());
@@ -416,7 +417,6 @@ export default function InventorySystem() {
     return () => unsubscribe();
   }, [user, db, appId]);
 
-  // --- OTIMIZAÇÃO: MAPA DE CATÁLOGO ---
   const catalogMap = useMemo(() => {
     const map = new Map();
     catalog.forEach((item) => {
@@ -469,31 +469,26 @@ export default function InventorySystem() {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // --- SISTEMA DE BUFFER (CONFERENCIA) ---
+  // --- BUFFER SYSTEM ---
   const handleScanToBuffer = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
       const sku = barcodeInput.trim().toUpperCase();
       if (!sku) return;
-
       const catalogInfo = findCatalogItem(sku);
-
       const newItem = {
-        tempId: Date.now() + Math.random(), // ID local temporário
+        tempId: Date.now() + Math.random(),
         sku,
         baseSku: catalogInfo ? catalogInfo.sku : null,
         name: catalogInfo ? catalogInfo.name : "Item não identificado",
         image: catalogInfo ? catalogInfo.image : null,
         status: "in_stock",
         addedBy: operatorName,
-        timestamp: new Date(), // Data local para exibição
+        timestamp: new Date(),
         dateIn: new Date().toLocaleString("pt-BR"),
       };
-
       setScannedBuffer((prev) => [newItem, ...prev]);
       setBarcodeInput("");
-
-      // Feedback sonoro/visual sutil (opcional)
     }
   };
 
@@ -509,24 +504,16 @@ export default function InventorySystem() {
       showNotification("Sem conexão com banco de dados.", "error");
       return;
     }
-
     setIsCommitting(true);
-
-    // O Firebase tem limite de 500 operações por lote (batch).
-    // Vamos dividir em pedaços de 450 para garantir.
     const chunkSize = 450;
     const chunks = [];
-
     for (let i = 0; i < scannedBuffer.length; i += chunkSize) {
       chunks.push(scannedBuffer.slice(i, i + chunkSize));
     }
-
     try {
       let totalAdded = 0;
-
       for (const chunk of chunks) {
         const batch = writeBatch(db);
-
         chunk.forEach((item) => {
           const docRef = doc(
             collection(
@@ -543,21 +530,19 @@ export default function InventorySystem() {
             baseSku: item.baseSku,
             status: "in_stock",
             addedBy: item.addedBy,
-            timestamp: serverTimestamp(), // Usa a hora do servidor na hora do commit
+            timestamp: serverTimestamp(),
             dateIn: item.dateIn,
             dateOut: null,
           });
         });
-
         await batch.commit();
         totalAdded += chunk.length;
       }
-
       showNotification(
         `Sucesso! ${totalAdded} itens adicionados ao estoque.`,
         "success"
       );
-      setScannedBuffer([]); // Limpa o buffer
+      setScannedBuffer([]);
       setBufferPage(1);
     } catch (err) {
       console.error(err);
@@ -587,7 +572,6 @@ export default function InventorySystem() {
     setScannedBuffer((prev) => prev.filter((item) => item.tempId !== tempId));
   };
 
-  // Paginação do Buffer
   const bufferItemsPerPage = 10;
   const paginatedBuffer = useMemo(() => {
     const start = (bufferPage - 1) * bufferItemsPerPage;
@@ -595,7 +579,7 @@ export default function InventorySystem() {
   }, [scannedBuffer, bufferPage]);
   const totalBufferPages = Math.ceil(scannedBuffer.length / bufferItemsPerPage);
 
-  // --- AÇÕES GERAIS ---
+  // --- LÓGICA DE DISPONIBILIDADE REAL E ALOCAÇÃO ---
   const getAvailability = (sku) => {
     const physical = inventory.filter(
       (i) => i.sku === sku && i.status === "in_stock"
@@ -605,6 +589,58 @@ export default function InventorySystem() {
       .reduce((acc, r) => acc + r.quantity, 0);
     return { physical, reserved, available: physical - reserved };
   };
+
+  // --- NOVA LÓGICA DE RESERVAS (FIFO) ---
+  // Calcula o status de cada reserva baseada na ordem de chegada e estoque atual
+  const reservationsWithStatus = useMemo(() => {
+    // 1. Agrupar Reservas por SKU
+    const skus = {};
+    reservations.forEach((r) => {
+      if (!skus[r.sku]) skus[r.sku] = [];
+      skus[r.sku].push(r);
+    });
+
+    // 2. Processar cada SKU
+    const processed = [];
+    Object.keys(skus).forEach((sku) => {
+      // Pega estoque físico total disponível na prateleira
+      let physicalStock = inventory.filter(
+        (i) => i.sku === sku && i.status === "in_stock"
+      ).length;
+
+      // Ordena reservas da mais antiga para a mais nova (FIFO)
+      // Quem pediu primeiro, leva primeiro.
+      const sorted = skus[sku].sort(
+        (a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0)
+      );
+
+      sorted.forEach((res) => {
+        let status = "ok"; // Verde (Tem estoque)
+        let missing = 0;
+
+        if (physicalStock >= res.quantity) {
+          // Tem estoque suficiente pra cobrir essa reserva
+          physicalStock -= res.quantity;
+        } else if (physicalStock > 0) {
+          // Tem um pouco, mas não tudo (Parcial)
+          status = "partial";
+          missing = res.quantity - physicalStock;
+          physicalStock = 0; // Zerou o estoque pra próxima reserva
+        } else {
+          // Não tem nada pra essa reserva
+          status = "missing";
+          missing = res.quantity;
+        }
+
+        processed.push({ ...res, status, missing });
+      });
+    });
+
+    // Retorna a lista plana ordenada por data geral para exibição na tabela
+    return processed.sort(
+      (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
+    );
+  }, [reservations, inventory]);
 
   const reduceReservationsIfNecessary = (batch, sku, qtySold) => {
     const { physical, reserved } = getAvailability(sku);
@@ -827,7 +863,6 @@ export default function InventorySystem() {
     }
   };
 
-  // --- FUNÇÃO MOVIDA PARA ABA CONFIG ---
   const handleResetStock = async () => {
     if (
       !window.confirm(
@@ -849,14 +884,12 @@ export default function InventorySystem() {
     if (!db) return;
 
     try {
-      // Deletar em lotes (Batch)
       const q = query(
         collection(db, "artifacts", appId, "public", "data", "inventory_items"),
         where("status", "==", "in_stock")
       );
       const snapshot = await getDocs(q);
 
-      // Firestore batch max size is 500
       const chunkSize = 400;
       const chunks = [];
       for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
@@ -1221,7 +1254,7 @@ export default function InventorySystem() {
     activeTab,
     catalog,
     catalogMap,
-  ]); // Adicionado catalogMap
+  ]);
 
   const paginatedReportData = useMemo(() => {
     const startIndex = (currentReportPage - 1) * itemsPerPage;
@@ -1327,7 +1360,7 @@ export default function InventorySystem() {
   // --- FILTRAGEM SEGURA (CORREÇÃO DE ERRO E PERFORMANCE) ---
   const filteredAndSortedGroups = useMemo(() => {
     let result = groupedInventory.filter((group) => {
-      const searchLower = debouncedSearch.toLowerCase(); // Usa o termo DEBOUNCED
+      const searchLower = debouncedSearch.toLowerCase();
       const skuStr = String(group.sku || "").toLowerCase();
       const nameStr = String(group.name || "").toLowerCase();
       const modelStr = String(group.model || "").toLowerCase();
@@ -1658,7 +1691,7 @@ export default function InventorySystem() {
               />
             </div>
             <div className="flex-1">
-              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.5</h1>
+              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.6</h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>
                   Operador:{" "}
@@ -2332,6 +2365,7 @@ export default function InventorySystem() {
                             }
                           />
                         </th>
+                        <th className="px-4 py-3">Status</th>
                         <th className="px-4 py-3">Data</th>
                         <th className="px-4 py-3">SKU</th>
                         <th className="px-4 py-3">Obs</th>
@@ -2340,7 +2374,7 @@ export default function InventorySystem() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {reservations.map((res) => (
+                      {reservationsWithStatus.map((res) => (
                         <tr key={res.id} className="hover:bg-yellow-50/30">
                           <td className="px-4 py-3 text-center">
                             <input
@@ -2349,6 +2383,26 @@ export default function InventorySystem() {
                               checked={selectedReservations.has(res.id)}
                               onChange={() => toggleSelectReservation(res.id)}
                             />
+                          </td>
+                          <td className="px-4 py-3">
+                            {res.status === "ok" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-green-100 text-green-700 px-2 py-1 rounded">
+                                <CheckCircle size={10} /> OK
+                              </span>
+                            )}
+                            {res.status === "partial" && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded"
+                                title={`Faltam ${res.missing} peças`}
+                              >
+                                <AlertOctagon size={10} /> Parcial
+                              </span>
+                            )}
+                            {res.status === "missing" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-1 rounded">
+                                <XCircle size={10} /> Sem Estoque
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-500">
                             {res.dateStr?.split(" ")[0] || "-"}
@@ -2375,7 +2429,7 @@ export default function InventorySystem() {
                       {reservations.length === 0 && (
                         <tr>
                           <td
-                            colSpan="6"
+                            colSpan="7"
                             className="px-6 py-12 text-center text-slate-400"
                           >
                             Nenhuma reserva ativa.

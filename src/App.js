@@ -41,7 +41,8 @@ import {
   Save,
   List,
   XCircle,
-  AlertOctagon
+  AlertOctagon,
+  BookmarkPlus,
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
@@ -91,7 +92,8 @@ export default function InventorySystem() {
   const [loginError, setLoginError] = useState(false);
 
   // --- APP STATES ---
-  const [activeTab, setActiveTab] = useState("conference");
+  // MUDANÇA: Aba padrão agora é 'stock'
+  const [activeTab, setActiveTab] = useState("stock");
   const [catalog, setCatalog] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [reservations, setReservations] = useState([]);
@@ -124,6 +126,11 @@ export default function InventorySystem() {
   const [zoomedImage, setZoomedImage] = useState(null);
   const [editModal, setEditModal] = useState(null);
 
+  // --- NOVO: MODAL DE RESERVA RÁPIDA ---
+  const [quickResModal, setQuickResModal] = useState(null); // Guarda o item sendo reservado
+  const [qrQty, setQrQty] = useState("1");
+  const [qrNote, setQrNote] = useState("");
+
   // --- CONFLICT MODAL ---
   const [conflictData, setConflictData] = useState(null);
 
@@ -131,7 +138,7 @@ export default function InventorySystem() {
   const [selectedSkus, setSelectedSkus] = useState(new Set());
   const [selectedReservations, setSelectedReservations] = useState(new Set());
 
-  // --- FORM RESERVA ---
+  // --- FORM RESERVA (ABA RESERVAS) ---
   const [resSku, setResSku] = useState("");
   const [resQty, setResQty] = useState("1");
   const [resNote, setResNote] = useState("");
@@ -145,22 +152,22 @@ export default function InventorySystem() {
   const [barcodeInput, setBarcodeInput] = useState("");
   const [salesInput, setSalesInput] = useState("");
   const [notification, setNotification] = useState(null);
-  
+
   // --- DEBOUNCE ---
-  const [searchTerm, setSearchTerm] = useState(""); 
-  const [debouncedSearch, setDebouncedSearch] = useState(""); 
-  
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
   const [filterModel, setFilterModel] = useState("all");
 
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // --- HELPER: NORMALIZAÇÃO DE TEXTO (IGNORAR ACENTOS) ---
+  // --- HELPER: NORMALIZAÇÃO DE TEXTO ---
   const normalizeText = (text) => {
     return String(text || "")
-      .normalize("NFD") // Separa acentos das letras
-      .replace(/[\u0300-\u036f]/g, "") // Remove os acentos
-      .toLowerCase(); // Tudo minúsculo
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
   };
 
   useEffect(() => {
@@ -397,7 +404,7 @@ export default function InventorySystem() {
     return () => clearInterval(checkXLSX);
   }, [isAuthenticated]);
 
-  // Listener Estoque
+  // Listeners
   useEffect(() => {
     if (!user || !db) return;
     const q = query(
@@ -410,7 +417,6 @@ export default function InventorySystem() {
     return () => unsubscribe();
   }, [user, db, appId]);
 
-  // Listener Reservas
   useEffect(() => {
     if (!user || !db) return;
     const q = query(
@@ -437,14 +443,17 @@ export default function InventorySystem() {
     if (!scannedSku) return null;
     const cleanSku = scannedSku.toUpperCase().trim();
     if (catalogMap.has(cleanSku)) {
-        return { ...catalogMap.get(cleanSku), baseSku: cleanSku };
+      return { ...catalogMap.get(cleanSku), baseSku: cleanSku };
     }
-    const parts = cleanSku.split('-');
+    const parts = cleanSku.split("-");
     if (parts.length > 1) {
       for (let i = parts.length - 1; i >= 1; i--) {
-        const potentialParentSku = parts.slice(0, i).join('-');
+        const potentialParentSku = parts.slice(0, i).join("-");
         if (catalogMap.has(potentialParentSku)) {
-             return { ...catalogMap.get(potentialParentSku), baseSku: potentialParentSku };
+          return {
+            ...catalogMap.get(potentialParentSku),
+            baseSku: potentialParentSku,
+          };
         }
       }
     }
@@ -485,82 +494,105 @@ export default function InventorySystem() {
         tempId: Date.now() + Math.random(),
         sku,
         baseSku: catalogInfo ? catalogInfo.sku : null,
-        name: catalogInfo ? catalogInfo.name : 'Item não identificado',
+        name: catalogInfo ? catalogInfo.name : "Item não identificado",
         image: catalogInfo ? catalogInfo.image : null,
         status: "in_stock",
         addedBy: operatorName,
         timestamp: new Date(),
         dateIn: new Date().toLocaleString("pt-BR"),
       };
-      setScannedBuffer(prev => [newItem, ...prev]);
+      setScannedBuffer((prev) => [newItem, ...prev]);
       setBarcodeInput("");
     }
   };
 
   const handleCommitBuffer = async () => {
     if (scannedBuffer.length === 0) return;
-    if (!window.confirm(`Confirmar envio de ${scannedBuffer.length} itens para o estoque?`)) return;
+    if (
+      !window.confirm(
+        `Confirmar envio de ${scannedBuffer.length} itens para o estoque?`
+      )
+    )
+      return;
     if (!db || !user) {
-        showNotification("Sem conexão com banco de dados.", "error");
-        return;
+      showNotification("Sem conexão com banco de dados.", "error");
+      return;
     }
     setIsCommitting(true);
     const chunkSize = 450;
     const chunks = [];
     for (let i = 0; i < scannedBuffer.length; i += chunkSize) {
-        chunks.push(scannedBuffer.slice(i, i + chunkSize));
+      chunks.push(scannedBuffer.slice(i, i + chunkSize));
     }
     try {
-        let totalAdded = 0;
-        for (const chunk of chunks) {
-            const batch = writeBatch(db);
-            chunk.forEach(item => {
-                const docRef = doc(collection(db, "artifacts", appId, "public", "data", "inventory_items"));
-                batch.set(docRef, {
-                    sku: item.sku,
-                    baseSku: item.baseSku,
-                    status: 'in_stock',
-                    addedBy: item.addedBy,
-                    timestamp: serverTimestamp(),
-                    dateIn: item.dateIn,
-                    dateOut: null
-                });
-            });
-            await batch.commit();
-            totalAdded += chunk.length;
-        }
-        showNotification(`Sucesso! ${totalAdded} itens adicionados ao estoque.`, "success");
-        setScannedBuffer([]);
-        setBufferPage(1);
+      let totalAdded = 0;
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        chunk.forEach((item) => {
+          const docRef = doc(
+            collection(
+              db,
+              "artifacts",
+              appId,
+              "public",
+              "data",
+              "inventory_items"
+            )
+          );
+          batch.set(docRef, {
+            sku: item.sku,
+            baseSku: item.baseSku,
+            status: "in_stock",
+            addedBy: item.addedBy,
+            timestamp: serverTimestamp(),
+            dateIn: item.dateIn,
+            dateOut: null,
+          });
+        });
+        await batch.commit();
+        totalAdded += chunk.length;
+      }
+      showNotification(
+        `Sucesso! ${totalAdded} itens adicionados ao estoque.`,
+        "success"
+      );
+      setScannedBuffer([]);
+      setBufferPage(1);
     } catch (err) {
-        console.error(err);
-        showNotification("Erro ao enviar alguns itens. Tente novamente.", "error");
+      console.error(err);
+      showNotification(
+        "Erro ao enviar alguns itens. Tente novamente.",
+        "error"
+      );
     } finally {
-        setIsCommitting(false);
+      setIsCommitting(false);
     }
   };
 
   const handleClearBuffer = () => {
     if (scannedBuffer.length === 0) return;
-    if (window.confirm("Tem certeza? Isso vai apagar a leitura atual (NÃO afeta o estoque salvo).")) {
-        setScannedBuffer([]);
-        setBufferPage(1);
-        showNotification("Leitura descartada.", "warning");
+    if (
+      window.confirm(
+        "Tem certeza? Isso vai apagar a leitura atual (NÃO afeta o estoque salvo)."
+      )
+    ) {
+      setScannedBuffer([]);
+      setBufferPage(1);
+      showNotification("Leitura descartada.", "warning");
     }
   };
 
   const removeItemFromBuffer = (tempId) => {
-      setScannedBuffer(prev => prev.filter(item => item.tempId !== tempId));
+    setScannedBuffer((prev) => prev.filter((item) => item.tempId !== tempId));
   };
 
   const bufferItemsPerPage = 10;
   const paginatedBuffer = useMemo(() => {
-      const start = (bufferPage - 1) * bufferItemsPerPage;
-      return scannedBuffer.slice(start, start + bufferItemsPerPage);
+    const start = (bufferPage - 1) * bufferItemsPerPage;
+    return scannedBuffer.slice(start, start + bufferItemsPerPage);
   }, [scannedBuffer, bufferPage]);
   const totalBufferPages = Math.ceil(scannedBuffer.length / bufferItemsPerPage);
 
-  // --- LÓGICA DE DISPONIBILIDADE REAL E ALOCAÇÃO ---
   const getAvailability = (sku) => {
     const physical = inventory.filter(
       (i) => i.sku === sku && i.status === "in_stock"
@@ -574,36 +606,41 @@ export default function InventorySystem() {
   // --- NOVA LÓGICA DE RESERVAS (FIFO) ---
   const reservationsWithStatus = useMemo(() => {
     const skus = {};
-    reservations.forEach(r => {
-        if(!skus[r.sku]) skus[r.sku] = [];
-        skus[r.sku].push(r);
+    reservations.forEach((r) => {
+      if (!skus[r.sku]) skus[r.sku] = [];
+      skus[r.sku].push(r);
     });
 
     const processed = [];
-    Object.keys(skus).forEach(sku => {
-        let physicalStock = inventory.filter(i => i.sku === sku && i.status === 'in_stock').length;
-        const sorted = skus[sku].sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+    Object.keys(skus).forEach((sku) => {
+      let physicalStock = inventory.filter(
+        (i) => i.sku === sku && i.status === "in_stock"
+      ).length;
+      const sorted = skus[sku].sort(
+        (a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0)
+      );
 
-        sorted.forEach(res => {
-            let status = 'ok'; 
-            let missing = 0;
+      sorted.forEach((res) => {
+        let status = "ok";
+        let missing = 0;
 
-            if (physicalStock >= res.quantity) {
-                physicalStock -= res.quantity;
-            } else if (physicalStock > 0) {
-                status = 'partial';
-                missing = res.quantity - physicalStock;
-                physicalStock = 0; 
-            } else {
-                status = 'missing'; 
-                missing = res.quantity;
-            }
-            processed.push({ ...res, status, missing });
-        });
+        if (physicalStock >= res.quantity) {
+          physicalStock -= res.quantity;
+        } else if (physicalStock > 0) {
+          status = "partial";
+          missing = res.quantity - physicalStock;
+          physicalStock = 0;
+        } else {
+          status = "missing";
+          missing = res.quantity;
+        }
+        processed.push({ ...res, status, missing });
+      });
     });
-    return processed.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    return processed.sort(
+      (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
+    );
   }, [reservations, inventory]);
-
 
   const reduceReservationsIfNecessary = (batch, sku, qtySold) => {
     const { physical, reserved } = getAvailability(sku);
@@ -677,6 +714,42 @@ export default function InventorySystem() {
       setResNote("");
     } catch (err) {
       showNotification("Erro ao criar reserva.", "error");
+    }
+  };
+
+  // --- NOVA FUNÇÃO: RESERVA RÁPIDA (MODAL) ---
+  const handleQuickReservation = async () => {
+    if (!db || !user || !quickResModal) return;
+    const skuClean = quickResModal.sku;
+    const quantity = parseInt(qrQty);
+
+    if (quantity < 1)
+      return showNotification("Quantidade inválida.", "warning");
+
+    const { available } = getAvailability(skuClean);
+    if (available < quantity) {
+      showNotification(`Estoque insuficiente. Disp: ${available}`, "error");
+      return;
+    }
+
+    try {
+      await addDoc(
+        collection(db, "artifacts", appId, "public", "data", "reservations"),
+        {
+          sku: skuClean,
+          quantity: quantity,
+          note: qrNote.slice(0, 90),
+          createdBy: operatorName,
+          createdAt: serverTimestamp(),
+          dateStr: new Date().toLocaleString("pt-BR"),
+        }
+      );
+      showNotification("Reserva criada!", "success");
+      setQuickResModal(null);
+      setQrQty("1");
+      setQrNote("");
+    } catch (err) {
+      showNotification("Erro ao reservar.", "error");
     }
   };
 
@@ -833,37 +906,39 @@ export default function InventorySystem() {
       )
     )
       return;
-    
+
     const confirmCode = Math.floor(1000 + Math.random() * 9000);
-    const userInput = window.prompt(`Para confirmar, digite o código: ${confirmCode}`);
-    
+    const userInput = window.prompt(
+      `Para confirmar, digite o código: ${confirmCode}`
+    );
+
     if (userInput !== String(confirmCode)) {
-        showNotification("Código incorreto. Cancelado.", "error");
-        return;
+      showNotification("Código incorreto. Cancelado.", "error");
+      return;
     }
 
     if (!db) return;
-    
+
     try {
-        const q = query(
+      const q = query(
         collection(db, "artifacts", appId, "public", "data", "inventory_items"),
         where("status", "==", "in_stock")
-        );
-        const snapshot = await getDocs(q);
-        
-        const chunkSize = 400;
-        const chunks = [];
-        for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
-            chunks.push(snapshot.docs.slice(i, i + chunkSize));
-        }
+      );
+      const snapshot = await getDocs(q);
 
-        for (const chunk of chunks) {
-            const batch = writeBatch(db);
-            chunk.forEach(doc => batch.delete(doc.ref));
-            await batch.commit();
-        }
+      const chunkSize = 400;
+      const chunks = [];
+      for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
+        chunks.push(snapshot.docs.slice(i, i + chunkSize));
+      }
 
-        showNotification("Estoque ZERADO com sucesso.", "success");
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        chunk.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
+
+      showNotification("Estoque ZERADO com sucesso.", "success");
     } catch (e) {
       showNotification("Erro ao zerar estoque.", "error");
     }
@@ -1214,7 +1289,7 @@ export default function InventorySystem() {
     reportEndDate,
     activeTab,
     catalog,
-    catalogMap
+    catalogMap,
   ]);
 
   const paginatedReportData = useMemo(() => {
@@ -1316,14 +1391,14 @@ export default function InventorySystem() {
     });
 
     return Object.values(groups);
-  }, [inventory, catalog, reservations, catalogMap]); 
+  }, [inventory, catalog, reservations, catalogMap]);
 
   // --- FILTRAGEM SEGURA E NORMALIZADA ---
   const filteredAndSortedGroups = useMemo(() => {
     let result = groupedInventory.filter((group) => {
       // 1. Normaliza a busca
-      const searchLower = normalizeText(debouncedSearch); 
-      
+      const searchLower = normalizeText(debouncedSearch);
+
       // 2. Normaliza os campos do produto
       const skuStr = normalizeText(group.sku);
       const nameStr = normalizeText(group.name);
@@ -1357,13 +1432,29 @@ export default function InventorySystem() {
   }, [filteredAndSortedGroups, currentPage, itemsPerPage]);
   const totalPages = Math.ceil(filteredAndSortedGroups.length / itemsPerPage);
 
-  const uniqueModels = useMemo(() => {
+  // --- OTIMIZAÇÃO: FILTRO DE MODELOS DINÂMICO (CORREÇÃO PEDIDA) ---
+  const modelsAvailableInSearch = useMemo(() => {
+    // 1. Filtra primeiro pela pesquisa (debouncedSearch)
+    const searchLower = normalizeText(debouncedSearch);
+    const matchingItems = groupedInventory.filter((group) => {
+      if (!searchLower) return true;
+      const skuStr = normalizeText(group.sku);
+      const nameStr = normalizeText(group.name);
+      const modelStr = normalizeText(group.model);
+      return (
+        skuStr.includes(searchLower) ||
+        nameStr.includes(searchLower) ||
+        modelStr.includes(searchLower)
+      );
+    });
+
+    // 2. Extrai os modelos únicos APENAS desses itens filtrados
     const models = new Set();
-    groupedInventory.forEach((item) => {
+    matchingItems.forEach((item) => {
       if (item.model && item.model !== "-") models.add(item.model);
     });
     return Array.from(models).sort();
-  }, [groupedInventory]);
+  }, [groupedInventory, debouncedSearch]); // Recalcula sempre que a pesquisa muda
 
   const totalItems = inventory.filter((i) => i.status === "in_stock").length;
   const totalValue = groupedInventory.reduce(
@@ -1580,6 +1671,84 @@ export default function InventorySystem() {
         </div>
       )}
 
+      {/* --- MODAL DE RESERVA RÁPIDA (POPUP) --- */}
+      {quickResModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <BookmarkPlus size={20} className="text-yellow-500" />
+                  Reservar Item
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 font-mono">
+                  {quickResModal.sku}
+                </p>
+                <p className="text-sm text-slate-700 font-medium line-clamp-1">
+                  {quickResModal.name}
+                </p>
+              </div>
+              <button
+                onClick={() => setQuickResModal(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">
+                  Quantidade
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() =>
+                      setQrQty(String(Math.max(1, parseInt(qrQty) - 1)))
+                    }
+                    className="p-2 bg-slate-100 rounded hover:bg-slate-200"
+                  >
+                    <Minus size={16} />
+                  </button>
+                  <input
+                    type="number"
+                    min="1"
+                    value={qrQty}
+                    onChange={(e) => setQrQty(e.target.value)}
+                    className="flex-1 text-center p-2 border rounded-lg font-bold"
+                  />
+                  <button
+                    onClick={() => setQrQty(String(parseInt(qrQty) + 1))}
+                    className="p-2 bg-slate-100 rounded hover:bg-slate-200"
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">
+                  Observação
+                </label>
+                <input
+                  type="text"
+                  value={qrNote}
+                  onChange={(e) => setQrNote(e.target.value)}
+                  className="w-full p-3 border rounded-lg text-sm"
+                  placeholder="Ex: Cliente Maria (Retira Amanhã)"
+                  autoFocus
+                />
+              </div>
+              <button
+                onClick={handleQuickReservation}
+                className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 rounded-lg mt-2"
+              >
+                CONFIRMAR RESERVA
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editModal && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-xl p-6">
@@ -1655,7 +1824,7 @@ export default function InventorySystem() {
               />
             </div>
             <div className="flex-1">
-              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.7</h1>
+              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.8</h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>
                   Operador:{" "}
@@ -1702,16 +1871,7 @@ export default function InventorySystem() {
 
       <div className="bg-white border-b sticky top-[76px] z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex overflow-x-auto">
-          <button
-            onClick={() => setActiveTab("conference")}
-            className={`flex-1 min-w-[100px] py-4 text-sm font-medium border-b-2 flex justify-center gap-2 ${
-              activeTab === "conference"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-slate-500"
-            }`}
-          >
-            <Barcode size={18} /> CONFERÊNCIA
-          </button>
+          {/* MUDANÇA DE ORDEM: ESTOQUE PRIMEIRO */}
           <button
             onClick={() => setActiveTab("stock")}
             className={`flex-1 min-w-[100px] py-4 text-sm font-medium border-b-2 flex justify-center gap-2 ${
@@ -1721,6 +1881,16 @@ export default function InventorySystem() {
             }`}
           >
             <ClipboardList size={18} /> ESTOQUE
+          </button>
+          <button
+            onClick={() => setActiveTab("conference")}
+            className={`flex-1 min-w-[100px] py-4 text-sm font-medium border-b-2 flex justify-center gap-2 ${
+              activeTab === "conference"
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-slate-500"
+            }`}
+          >
+            <Barcode size={18} /> CONFERÊNCIA
           </button>
           <button
             onClick={() => setActiveTab("reservations")}
@@ -1811,126 +1981,149 @@ export default function InventorySystem() {
 
             {/* ÁREA DO BUFFER */}
             <div className="w-full max-w-3xl">
-                <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-                    <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                            <List size={20} className="text-blue-600" />
-                            <h3 className="font-bold text-slate-700">Itens Lidos na Sessão: {scannedBuffer.length}</h3>
-                        </div>
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={handleClearBuffer}
-                                disabled={scannedBuffer.length === 0 || isCommitting}
-                                className="px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-100 transition-colors disabled:opacity-50"
-                            >
-                                DESCARTAR
-                            </button>
-                            <button 
-                                onClick={handleCommitBuffer}
-                                disabled={scannedBuffer.length === 0 || isCommitting}
-                                className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {isCommitting ? <RefreshCw className="animate-spin" size={14} /> : <Save size={14} />}
-                                {isCommitting ? "ENVIANDO..." : "ENVIAR PRO ESTOQUE"}
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div className="max-h-[400px] overflow-y-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-100 text-xs text-slate-500 uppercase font-bold sticky top-0">
-                                <tr>
-                                    <th className="px-4 py-3">SKU</th>
-                                    <th className="px-4 py-3">Produto</th>
-                                    <th className="px-4 py-3 w-10"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {paginatedBuffer.map((item) => (
-                                    <tr key={item.tempId} className="hover:bg-blue-50/50">
-                                        <td className="px-4 py-2 font-mono font-bold text-blue-600 text-xs">{item.sku}</td>
-                                        <td className="px-4 py-2">
-                                            <span className="block text-xs font-medium text-slate-700 truncate max-w-[200px]">{item.name}</span>
-                                            <span className="text-[10px] text-slate-400">{item.baseSku}</span>
-                                        </td>
-                                        <td className="px-4 py-2 text-right">
-                                            <button 
-                                                onClick={() => removeItemFromBuffer(item.tempId)}
-                                                className="text-slate-300 hover:text-red-500 p-1"
-                                                title="Remover da lista"
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {scannedBuffer.length === 0 && (
-                                    <tr>
-                                        <td colSpan="3" className="px-6 py-12 text-center text-slate-400">
-                                            <div className="flex flex-col items-center gap-2">
-                                                <Barcode size={32} className="opacity-20" />
-                                                <p>Lista vazia. Comece a bipar!</p>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    {/* Paginação Simples do Buffer */}
-                    {totalBufferPages > 1 && (
-                        <div className="bg-slate-50 px-4 py-2 border-t flex justify-between items-center text-xs text-slate-500">
-                            <span>Página {bufferPage} de {totalBufferPages}</span>
-                            <div className="flex gap-1">
-                                <button 
-                                    onClick={() => setBufferPage(p => Math.max(1, p - 1))}
-                                    disabled={bufferPage === 1}
-                                    className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
-                                >
-                                    <ChevronLeft size={14} />
-                                </button>
-                                <button 
-                                    onClick={() => setBufferPage(p => Math.min(totalBufferPages, p + 1))}
-                                    disabled={bufferPage === totalBufferPages}
-                                    className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
-                                >
-                                    <ChevronRight size={14} />
-                                </button>
-                            </div>
-                        </div>
-                    )}
+              <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <List size={20} className="text-blue-600" />
+                    <h3 className="font-bold text-slate-700">
+                      Itens Lidos na Sessão: {scannedBuffer.length}
+                    </h3>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleClearBuffer}
+                      disabled={scannedBuffer.length === 0 || isCommitting}
+                      className="px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-100 transition-colors disabled:opacity-50"
+                    >
+                      DESCARTAR
+                    </button>
+                    <button
+                      onClick={handleCommitBuffer}
+                      disabled={scannedBuffer.length === 0 || isCommitting}
+                      className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isCommitting ? (
+                        <RefreshCw className="animate-spin" size={14} />
+                      ) : (
+                        <Save size={14} />
+                      )}
+                      {isCommitting ? "ENVIANDO..." : "ENVIAR PRO ESTOQUE"}
+                    </button>
+                  </div>
                 </div>
+
+                <div className="max-h-[400px] overflow-y-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-100 text-xs text-slate-500 uppercase font-bold sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3">SKU</th>
+                        <th className="px-4 py-3">Produto</th>
+                        <th className="px-4 py-3 w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {paginatedBuffer.map((item) => (
+                        <tr key={item.tempId} className="hover:bg-blue-50/50">
+                          <td className="px-4 py-2 font-mono font-bold text-blue-600 text-xs">
+                            {item.sku}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className="block text-xs font-medium text-slate-700 truncate max-w-[200px]">
+                              {item.name}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {item.baseSku}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <button
+                              onClick={() => removeItemFromBuffer(item.tempId)}
+                              className="text-slate-300 hover:text-red-500 p-1"
+                              title="Remover da lista"
+                            >
+                              <X size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {scannedBuffer.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan="3"
+                            className="px-6 py-12 text-center text-slate-400"
+                          >
+                            <div className="flex flex-col items-center gap-2">
+                              <Barcode size={32} className="opacity-20" />
+                              <p>Lista vazia. Comece a bipar!</p>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Paginação Simples do Buffer */}
+                {totalBufferPages > 1 && (
+                  <div className="bg-slate-50 px-4 py-2 border-t flex justify-between items-center text-xs text-slate-500">
+                    <span>
+                      Página {bufferPage} de {totalBufferPages}
+                    </span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setBufferPage((p) => Math.max(1, p - 1))}
+                        disabled={bufferPage === 1}
+                        className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setBufferPage((p) =>
+                            Math.min(totalBufferPages, p + 1)
+                          )
+                        }
+                        disabled={bufferPage === totalBufferPages}
+                        className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
         {/* --- NOVA ABA CONFIGURAÇÕES (DANGER ZONE) --- */}
         {activeTab === "config" && (
-            <div className="flex flex-col items-center justify-center py-12">
-                <div className="w-full max-w-2xl">
-                    <div className="bg-red-50 border-2 border-red-200 rounded-xl p-8 text-center shadow-lg">
-                        <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <ShieldAlert size={48} />
-                        </div>
-                        <h2 className="text-2xl font-bold text-red-800 mb-2">Zona de Perigo</h2>
-                        <p className="text-red-600 mb-8 max-w-md mx-auto">
-                            Ações nesta área são irreversíveis e afetam todo o banco de dados. 
-                            Use apenas se souber exatamente o que está fazendo.
-                        </p>
-
-                        <button
-                            onClick={handleResetStock}
-                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-3 mx-auto"
-                        >
-                            <Trash2 size={24} />
-                            APAGAR TODO O ESTOQUE
-                        </button>
-                        <p className="mt-4 text-xs text-red-400 font-bold uppercase tracking-widest">
-                            Requer confirmação dupla + código de segurança
-                        </p>
-                    </div>
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="w-full max-w-2xl">
+              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-8 text-center shadow-lg">
+                <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <ShieldAlert size={48} />
                 </div>
+                <h2 className="text-2xl font-bold text-red-800 mb-2">
+                  Zona de Perigo
+                </h2>
+                <p className="text-red-600 mb-8 max-w-md mx-auto">
+                  Ações nesta área são irreversíveis e afetam todo o banco de
+                  dados. Use apenas se souber exatamente o que está fazendo.
+                </p>
+
+                <button
+                  onClick={handleResetStock}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-3 mx-auto"
+                >
+                  <Trash2 size={24} />
+                  APAGAR TODO O ESTOQUE
+                </button>
+                <p className="mt-4 text-xs text-red-400 font-bold uppercase tracking-widest">
+                  Requer confirmação dupla + código de segurança
+                </p>
+              </div>
             </div>
+          </div>
         )}
 
         {activeTab === "stock" && (
@@ -2004,7 +2197,8 @@ export default function InventorySystem() {
                     }}
                   >
                     <option value="all">Todos Modelos</option>
-                    {uniqueModels.map((model) => (
+                    {/* USO DA LISTA FILTRADA DINAMICAMENTE */}
+                    {modelsAvailableInSearch.map((model) => (
                       <option key={model} value={model}>
                         {model}
                       </option>
@@ -2162,12 +2356,26 @@ export default function InventorySystem() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => setEditModal(group)}
-                            className="p-1.5 text-slate-400 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 rounded transition-colors"
-                          >
-                            <Edit2 size={16} />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => {
+                                setQuickResModal(group);
+                                setQrQty("1");
+                                setQrNote("");
+                              }}
+                              className="p-1.5 text-yellow-500 hover:text-white bg-yellow-50 hover:bg-yellow-500 rounded transition-colors"
+                              title="Reserva Rápida"
+                            >
+                              <Plus size={16} />
+                            </button>
+                            <button
+                              onClick={() => setEditModal(group)}
+                              className="p-1.5 text-slate-400 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 rounded transition-colors"
+                              title="Ajustar Estoque"
+                            >
+                              <Edit2 size={16} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2326,21 +2534,24 @@ export default function InventorySystem() {
                             />
                           </td>
                           <td className="px-4 py-3">
-                             {res.status === 'ok' && (
-                                <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-green-100 text-green-700 px-2 py-1 rounded">
-                                    <CheckCircle size={10} /> OK
-                                </span>
-                             )}
-                             {res.status === 'partial' && (
-                                <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded" title={`Faltam ${res.missing} peças`}>
-                                    <AlertOctagon size={10} /> Parcial
-                                </span>
-                             )}
-                             {res.status === 'missing' && (
-                                <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-1 rounded">
-                                    <XCircle size={10} /> Sem Estoque
-                                </span>
-                             )}
+                            {res.status === "ok" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-green-100 text-green-700 px-2 py-1 rounded">
+                                <CheckCircle size={10} /> OK
+                              </span>
+                            )}
+                            {res.status === "partial" && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded"
+                                title={`Faltam ${res.missing} peças`}
+                              >
+                                <AlertOctagon size={10} /> Parcial
+                              </span>
+                            )}
+                            {res.status === "missing" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-1 rounded">
+                                <XCircle size={10} /> Sem Estoque
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-500">
                             {res.dateStr?.split(" ")[0] || "-"}

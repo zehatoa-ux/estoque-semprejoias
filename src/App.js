@@ -37,6 +37,9 @@ import {
   Clock,
   Bookmark,
   ShieldAlert,
+  Settings,
+  Save,
+  List,
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
@@ -93,6 +96,11 @@ export default function InventorySystem() {
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [catalogSource, setCatalogSource] = useState("none");
 
+  // --- BUFFER SYSTEM (NOVO) ---
+  const [scannedBuffer, setScannedBuffer] = useState([]); // Lista temporária
+  const [bufferPage, setBufferPage] = useState(1);
+  const [isCommitting, setIsCommitting] = useState(false);
+
   // --- REPORT STATES ---
   const [reportStartDate, setReportStartDate] = useState(() => {
     const d = new Date();
@@ -135,11 +143,23 @@ export default function InventorySystem() {
   const [barcodeInput, setBarcodeInput] = useState("");
   const [salesInput, setSalesInput] = useState("");
   const [notification, setNotification] = useState(null);
+
+  // --- CORREÇÃO DE PERFORMANCE (DEBOUNCE) ---
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
   const [filterModel, setFilterModel] = useState("all");
 
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // --- OTIMIZAÇÃO: EFEITO DEBOUNCE ---
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   // --- 0. CARREGAR DEPENDÊNCIAS ---
   useEffect(() => {
@@ -188,20 +208,7 @@ export default function InventorySystem() {
       setAppId(typeof __app_id !== "undefined" ? __app_id : "estoque-oficial");
 
       const initAuth = async () => {
-        try {
-          if (
-            typeof __initial_auth_token !== "undefined" &&
-            __initial_auth_token
-          ) {
-            const { signInWithCustomToken } = await import("firebase/auth");
-            await signInWithCustomToken(authInstance, __initial_auth_token);
-          } else {
-            await signInAnonymously(authInstance);
-          }
-        } catch (e) {
-          console.error("Auth Error:", e);
-          await signInAnonymously(authInstance);
-        }
+        await signInAnonymously(authInstance);
       };
       initAuth();
       const unsubscribe = onAuthStateChanged(authInstance, (u) => setUser(u));
@@ -277,7 +284,6 @@ export default function InventorySystem() {
     return products;
   };
 
-  // --- 3. FETCHERS ---
   const saveToCache = (data) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -336,7 +342,6 @@ export default function InventorySystem() {
           "success"
         );
     } catch (error) {
-      console.warn("XLSX Fetch Error:", error);
       if (loadFromCache() && isAuthenticated)
         showNotification("Usando catálogo offline.", "warning");
     } finally {
@@ -411,38 +416,32 @@ export default function InventorySystem() {
     return () => unsubscribe();
   }, [user, db, appId]);
 
-  // --- HELPERS ---
+  // --- OTIMIZAÇÃO: MAPA DE CATÁLOGO ---
+  const catalogMap = useMemo(() => {
+    const map = new Map();
+    catalog.forEach((item) => {
+      map.set(item.sku, item);
+    });
+    return map;
+  }, [catalog]);
+
   const findCatalogItem = (scannedSku) => {
     if (!scannedSku) return null;
     const cleanSku = scannedSku.toUpperCase().trim();
-    const exactMatch = catalog.find((p) => p.sku === cleanSku);
-    if (exactMatch)
-      return { ...exactMatch, matchType: "exact", baseSku: exactMatch.sku };
+    if (catalogMap.has(cleanSku)) {
+      return { ...catalogMap.get(cleanSku), baseSku: cleanSku };
+    }
     const parts = cleanSku.split("-");
     if (parts.length > 1) {
       for (let i = parts.length - 1; i >= 1; i--) {
         const potentialParentSku = parts.slice(0, i).join("-");
-        const parentMatch = catalog.find((p) => p.sku === potentialParentSku);
-        if (parentMatch)
+        if (catalogMap.has(potentialParentSku)) {
           return {
-            ...parentMatch,
-            matchType: "parent",
+            ...catalogMap.get(potentialParentSku),
             baseSku: potentialParentSku,
-            variationSku: cleanSku,
           };
+        }
       }
-    }
-    if (cleanSku.length > 5) {
-      const prefixMatch = catalog.find(
-        (p) => cleanSku.startsWith(p.sku) && p.sku.length > 4
-      );
-      if (prefixMatch)
-        return {
-          ...prefixMatch,
-          matchType: "parent_prefix",
-          baseSku: prefixMatch.sku,
-          variationSku: cleanSku,
-        };
     }
     return null;
   };
@@ -470,6 +469,133 @@ export default function InventorySystem() {
     setTimeout(() => setNotification(null), 4000);
   };
 
+  // --- SISTEMA DE BUFFER (CONFERENCIA) ---
+  const handleScanToBuffer = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const sku = barcodeInput.trim().toUpperCase();
+      if (!sku) return;
+
+      const catalogInfo = findCatalogItem(sku);
+
+      const newItem = {
+        tempId: Date.now() + Math.random(), // ID local temporário
+        sku,
+        baseSku: catalogInfo ? catalogInfo.sku : null,
+        name: catalogInfo ? catalogInfo.name : "Item não identificado",
+        image: catalogInfo ? catalogInfo.image : null,
+        status: "in_stock",
+        addedBy: operatorName,
+        timestamp: new Date(), // Data local para exibição
+        dateIn: new Date().toLocaleString("pt-BR"),
+      };
+
+      setScannedBuffer((prev) => [newItem, ...prev]);
+      setBarcodeInput("");
+
+      // Feedback sonoro/visual sutil (opcional)
+    }
+  };
+
+  const handleCommitBuffer = async () => {
+    if (scannedBuffer.length === 0) return;
+    if (
+      !window.confirm(
+        `Confirmar envio de ${scannedBuffer.length} itens para o estoque?`
+      )
+    )
+      return;
+    if (!db || !user) {
+      showNotification("Sem conexão com banco de dados.", "error");
+      return;
+    }
+
+    setIsCommitting(true);
+
+    // O Firebase tem limite de 500 operações por lote (batch).
+    // Vamos dividir em pedaços de 450 para garantir.
+    const chunkSize = 450;
+    const chunks = [];
+
+    for (let i = 0; i < scannedBuffer.length; i += chunkSize) {
+      chunks.push(scannedBuffer.slice(i, i + chunkSize));
+    }
+
+    try {
+      let totalAdded = 0;
+
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+
+        chunk.forEach((item) => {
+          const docRef = doc(
+            collection(
+              db,
+              "artifacts",
+              appId,
+              "public",
+              "data",
+              "inventory_items"
+            )
+          );
+          batch.set(docRef, {
+            sku: item.sku,
+            baseSku: item.baseSku,
+            status: "in_stock",
+            addedBy: item.addedBy,
+            timestamp: serverTimestamp(), // Usa a hora do servidor na hora do commit
+            dateIn: item.dateIn,
+            dateOut: null,
+          });
+        });
+
+        await batch.commit();
+        totalAdded += chunk.length;
+      }
+
+      showNotification(
+        `Sucesso! ${totalAdded} itens adicionados ao estoque.`,
+        "success"
+      );
+      setScannedBuffer([]); // Limpa o buffer
+      setBufferPage(1);
+    } catch (err) {
+      console.error(err);
+      showNotification(
+        "Erro ao enviar alguns itens. Tente novamente.",
+        "error"
+      );
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  const handleClearBuffer = () => {
+    if (scannedBuffer.length === 0) return;
+    if (
+      window.confirm(
+        "Tem certeza? Isso vai apagar a leitura atual (NÃO afeta o estoque salvo)."
+      )
+    ) {
+      setScannedBuffer([]);
+      setBufferPage(1);
+      showNotification("Leitura descartada.", "warning");
+    }
+  };
+
+  const removeItemFromBuffer = (tempId) => {
+    setScannedBuffer((prev) => prev.filter((item) => item.tempId !== tempId));
+  };
+
+  // Paginação do Buffer
+  const bufferItemsPerPage = 10;
+  const paginatedBuffer = useMemo(() => {
+    const start = (bufferPage - 1) * bufferItemsPerPage;
+    return scannedBuffer.slice(start, start + bufferItemsPerPage);
+  }, [scannedBuffer, bufferPage]);
+  const totalBufferPages = Math.ceil(scannedBuffer.length / bufferItemsPerPage);
+
+  // --- AÇÕES GERAIS ---
   const getAvailability = (sku) => {
     const physical = inventory.filter(
       (i) => i.sku === sku && i.status === "in_stock"
@@ -480,11 +606,9 @@ export default function InventorySystem() {
     return { physical, reserved, available: physical - reserved };
   };
 
-  // --- FUNÇÃO CRÍTICA: REDUÇÃO AUTOMÁTICA DE RESERVA ---
   const reduceReservationsIfNecessary = (batch, sku, qtySold) => {
     const { physical, reserved } = getAvailability(sku);
     const free = Math.max(0, physical - reserved);
-
     const shortage = Math.max(0, qtySold - free);
 
     if (shortage > 0) {
@@ -497,7 +621,6 @@ export default function InventorySystem() {
 
       for (const res of skuRes) {
         if (remainingToReduce <= 0) break;
-
         const resRef = doc(
           db,
           "artifacts",
@@ -507,7 +630,6 @@ export default function InventorySystem() {
           "reservations",
           res.id
         );
-
         if (res.quantity <= remainingToReduce) {
           batch.delete(resRef);
           remainingToReduce -= res.quantity;
@@ -521,21 +643,16 @@ export default function InventorySystem() {
     return false;
   };
 
-  // --- FUNÇÕES DE RESERVA ---
   const handleCreateReservation = async (e) => {
     e.preventDefault();
     if (!db || !user) return;
-
     const skuClean = resSku.toUpperCase().trim();
     const quantity = parseInt(resQty);
-
     if (!skuClean || quantity < 1) {
       showNotification("Dados inválidos.", "warning");
       return;
     }
-
     const { available } = getAvailability(skuClean);
-
     if (available < quantity) {
       showNotification(
         `Erro: Estoque insuficiente. Disponível: ${available}, Solicitado: ${quantity}`,
@@ -543,7 +660,6 @@ export default function InventorySystem() {
       );
       return;
     }
-
     try {
       await addDoc(
         collection(db, "artifacts", appId, "public", "data", "reservations"),
@@ -592,14 +708,12 @@ export default function InventorySystem() {
       )
     )
       return;
-
     const batch = writeBatch(db);
     selectedReservations.forEach((id) => {
       batch.delete(
         doc(db, "artifacts", appId, "public", "data", "reservations", id)
       );
     });
-
     try {
       await batch.commit();
       showNotification("Reservas canceladas em massa.", "success");
@@ -614,48 +728,6 @@ export default function InventorySystem() {
     if (newSet.has(id)) newSet.delete(id);
     else newSet.add(id);
     setSelectedReservations(newSet);
-  };
-
-  // --- AÇÕES DE ESTOQUE ---
-  const handleScan = async (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const sku = barcodeInput.trim().toUpperCase();
-      if (!sku) return;
-      if (!db || !user) {
-        showNotification("Offline.", "error");
-        return;
-      }
-      const catalogInfo = findCatalogItem(sku);
-      try {
-        await addDoc(
-          collection(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            "inventory_items"
-          ),
-          {
-            sku,
-            baseSku: catalogInfo ? catalogInfo.sku : null,
-            status: "in_stock",
-            addedBy: operatorName,
-            timestamp: serverTimestamp(),
-            dateIn: new Date().toLocaleString("pt-BR"),
-            dateOut: null,
-          }
-        );
-        showNotification(
-          catalogInfo ? `+1 ${catalogInfo.name}` : `+1 SKU: ${sku}`,
-          "success"
-        );
-      } catch (err) {
-        showNotification(`Erro: ${err.message}`, "error");
-      }
-      setBarcodeInput("");
-    }
   };
 
   const processSales = async () => {
@@ -694,7 +766,6 @@ export default function InventorySystem() {
       });
       return;
     }
-
     executeBatchSales(lines);
   };
 
@@ -756,30 +827,49 @@ export default function InventorySystem() {
     }
   };
 
+  // --- FUNÇÃO MOVIDA PARA ABA CONFIG ---
   const handleResetStock = async () => {
     if (
       !window.confirm(
-        "ATENÇÃO: Isso apagará TODOS os itens do estoque atual. Tem certeza?"
+        "PERIGO: Isso apagará TODOS os itens do estoque FÍSICO atual do sistema.\n\nIsso é usado apenas para começar um inventário do zero.\n\nTem certeza absoluta?"
       )
     )
       return;
-    if (
-      !window.confirm("Confirmação final: Deseja realmente zerar a contagem?")
-    )
-      return;
-    if (!db) return;
-    const q = query(
-      collection(db, "artifacts", appId, "public", "data", "inventory_items"),
-      where("status", "==", "in_stock")
+
+    const confirmCode = Math.floor(1000 + Math.random() * 9000);
+    const userInput = window.prompt(
+      `Para confirmar, digite o código: ${confirmCode}`
     );
-    const snapshot = await getDocs(q);
-    const batch = writeBatch(db);
-    snapshot.docs.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
+
+    if (userInput !== String(confirmCode)) {
+      showNotification("Código incorreto. Cancelado.", "error");
+      return;
+    }
+
+    if (!db) return;
+
     try {
-      await batch.commit();
-      showNotification("Estoque zerado com sucesso.", "success");
+      // Deletar em lotes (Batch)
+      const q = query(
+        collection(db, "artifacts", appId, "public", "data", "inventory_items"),
+        where("status", "==", "in_stock")
+      );
+      const snapshot = await getDocs(q);
+
+      // Firestore batch max size is 500
+      const chunkSize = 400;
+      const chunks = [];
+      for (let i = 0; i < snapshot.docs.length; i += chunkSize) {
+        chunks.push(snapshot.docs.slice(i, i + chunkSize));
+      }
+
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        chunk.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
+
+      showNotification("Estoque ZERADO com sucesso.", "success");
     } catch (e) {
       showNotification("Erro ao zerar estoque.", "error");
     }
@@ -787,6 +877,24 @@ export default function InventorySystem() {
 
   const adjustStock = async (group, delta) => {
     if (!db) return;
+
+    if (delta < 0) {
+      const removeQty = Math.abs(delta);
+      const { available } = getAvailability(group.sku);
+
+      if (removeQty > available) {
+        if (
+          !window.confirm(
+            `ALERTA DE RESERVA:\nEste item tem reservas ativas.\nDisponível livre: ${available}\nVocê está removendo: ${removeQty}\n\nIsso vai consumir reservas. Continuar?`
+          )
+        ) {
+          return;
+        }
+      }
+    }
+
+    let reservationAdjusted = false;
+
     if (delta > 0) {
       const batch = writeBatch(db);
       for (let i = 0; i < delta; i++) {
@@ -814,25 +922,15 @@ export default function InventorySystem() {
       await batch.commit();
       showNotification(`Adicionado ${delta} itens de ${group.sku}`, "success");
     } else {
+      const batch = writeBatch(db);
       const qtyToRemove = Math.abs(delta);
-
-      // Proteção na Remoção Manual
-      const { available } = getAvailability(group.sku);
-      if (qtyToRemove > available) {
-        if (
-          !window.confirm(
-            `ALERTA DE RESERVA:\nEste item tem reservas ativas.\nDisponível livre: ${available}\nVocê está removendo: ${qtyToRemove}\n\nIsso vai consumir reservas. Continuar?`
-          )
-        ) {
-          return;
-        }
-      }
 
       const reduced = reduceReservationsIfNecessary(
         batch,
         group.sku,
         qtyToRemove
       );
+      if (reduced) reservationAdjusted = true;
 
       const itemsToRemove = group.entries
         .sort(
@@ -858,9 +956,10 @@ export default function InventorySystem() {
           removedBy: operatorName,
         });
       });
+
       await batch.commit();
       let msg = `Removido ${itemsToRemove.length} itens de ${group.sku}`;
-      if (reduced) msg += " (Reserva ajustada)";
+      if (reservationAdjusted) msg += " (Reserva ajustada)";
       showNotification(msg, "success");
     }
   };
@@ -967,6 +1066,177 @@ export default function InventorySystem() {
     setSelectedSkus(new Set());
   };
 
+  const handleExportXLSX = () => {
+    if (!window.XLSX) {
+      showNotification("Carregando bibliotecas...", "warning");
+      return;
+    }
+    if (filteredAndSortedGroups.length === 0) {
+      showNotification("Nada para exportar.", "warning");
+      return;
+    }
+
+    const exportData = filteredAndSortedGroups.map((group) => ({
+      SKU: group.sku,
+      Produto: group.name,
+      Modelo: group.model,
+      Quantidade: group.displayQuantity,
+      Reservado: group.reservedQuantity,
+      Preço: group.price,
+      Total: group.price * group.displayQuantity,
+      Ultima_Modificacao: group.lastModifiedStr || "-",
+    }));
+
+    const ws = window.XLSX.utils.json_to_sheet(exportData);
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "Estoque Atual");
+    window.XLSX.writeFile(
+      wb,
+      `estoque_${new Date().toISOString().split("T")[0]}.xlsx`
+    );
+  };
+
+  const handleExportPDF = () => {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      showNotification(
+        "Carregando bibliotecas... Tente novamente em instantes.",
+        "warning"
+      );
+      return;
+    }
+    if (filteredAndSortedGroups.length === 0) {
+      showNotification("Nada para exportar.", "warning");
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    doc.setFontSize(18);
+    doc.text("Relatório de Estoque", 14, 22);
+    doc.setFontSize(11);
+    doc.text(`Data: ${new Date().toLocaleString()}`, 14, 30);
+    doc.text(
+      `Total de Itens (Líquido): ${
+        totalItems - reservations.reduce((acc, r) => acc + r.quantity, 0)
+      }`,
+      14,
+      36
+    );
+
+    const tableColumn = ["SKU", "Produto", "Modelo", "Disp.", "Res.", "Preço"];
+    const tableRows = [];
+
+    filteredAndSortedGroups.forEach((group) => {
+      const productData = [
+        group.sku,
+        group.name,
+        group.model,
+        group.displayQuantity,
+        group.reservedQuantity > 0 ? group.reservedQuantity : "-",
+        `R$ ${group.price.toFixed(2)}`,
+      ];
+      tableRows.push(productData);
+    });
+
+    doc.autoTable({
+      head: [tableColumn],
+      body: tableRows,
+      startY: 45,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [22, 160, 133] },
+    });
+
+    doc.save(`relatorio_estoque_${new Date().toISOString().split("T")[0]}.pdf`);
+  };
+
+  const setReportRange = (days) => {
+    const end = new Date();
+    const start = new Date();
+    if (days === "month") {
+      start.setDate(1);
+    } else {
+      start.setDate(end.getDate() - days);
+    }
+    setReportStartDate(start.toISOString().split("T")[0]);
+    setReportEndDate(end.toISOString().split("T")[0]);
+    setCurrentReportPage(1);
+  };
+
+  const reportData = useMemo(() => {
+    if (activeTab !== "reports") return [];
+    const events = [];
+    const start = new Date(reportStartDate + "T00:00:00");
+    const end = new Date(reportEndDate + "T23:59:59");
+
+    inventory.forEach((item) => {
+      const details = findCatalogItem(item.sku);
+      const processEvent = (date, type, user) => {
+        const d = date?.toDate ? date.toDate() : new Date(0);
+        if (d >= start && d <= end) {
+          events.push({
+            id: item.id + "_" + type,
+            date: d,
+            type,
+            sku: item.sku,
+            name: details?.name || "N/I",
+            user: user || "-",
+            details,
+          });
+        }
+      };
+
+      if (item.status === "in_stock")
+        processEvent(item.timestamp, "entrada", item.addedBy);
+      if (item.status === "sold")
+        processEvent(item.soldTimestamp, "saida", item.soldBy);
+      if (item.status === "adjusted_out")
+        processEvent(item.outTimestamp, "ajuste", item.removedBy);
+    });
+
+    reservations.forEach((res) => {
+      const details = findCatalogItem(res.sku);
+      const resDate = res.createdAt?.toDate
+        ? res.createdAt.toDate()
+        : new Date(0);
+      if (resDate >= start && resDate <= end) {
+        events.push({
+          id: res.id + "_res_created",
+          date: resDate,
+          type: "reserva_criada",
+          sku: res.sku,
+          name: details?.name || "N/I",
+          user: res.createdBy || "-",
+          details,
+        });
+      }
+    });
+
+    return events.sort((a, b) => b.date - a.date);
+  }, [
+    inventory,
+    reservations,
+    reportStartDate,
+    reportEndDate,
+    activeTab,
+    catalog,
+    catalogMap,
+  ]); // Adicionado catalogMap
+
+  const paginatedReportData = useMemo(() => {
+    const startIndex = (currentReportPage - 1) * itemsPerPage;
+    return reportData.slice(startIndex, startIndex + itemsPerPage);
+  }, [reportData, currentReportPage, itemsPerPage]);
+
+  const totalReportPages = Math.ceil(reportData.length / itemsPerPage);
+  const reportStats = useMemo(() => {
+    return {
+      entries: reportData.filter((e) => e.type === "entrada").length,
+      sales: reportData.filter((e) => e.type === "saida").length,
+      adjustments: reportData.filter((e) => e.type === "ajuste").length,
+    };
+  }, [reportData]);
+
   // --- AGRUPAMENTO (INVENTORY LOGIC COM RESERVAS) ---
   const groupedInventory = useMemo(() => {
     const groups = {};
@@ -1052,19 +1322,24 @@ export default function InventorySystem() {
     });
 
     return Object.values(groups);
-  }, [inventory, catalog, reservations]);
+  }, [inventory, catalog, reservations, catalogMap]);
 
-  // --- DEFINIÇÕES DE VARIÁVEIS DEPENDENTES DO GROUPEDINVENTORY ---
+  // --- FILTRAGEM SEGURA (CORREÇÃO DE ERRO E PERFORMANCE) ---
   const filteredAndSortedGroups = useMemo(() => {
     let result = groupedInventory.filter((group) => {
-      const searchLower = searchTerm.toLowerCase();
+      const searchLower = debouncedSearch.toLowerCase(); // Usa o termo DEBOUNCED
+      const skuStr = String(group.sku || "").toLowerCase();
+      const nameStr = String(group.name || "").toLowerCase();
+      const modelStr = String(group.model || "").toLowerCase();
+
       return (
-        (group.sku.toLowerCase().includes(searchLower) ||
-          group.name.toLowerCase().includes(searchLower) ||
-          group.model.toLowerCase().includes(searchLower)) &&
+        (skuStr.includes(searchLower) ||
+          nameStr.includes(searchLower) ||
+          modelStr.includes(searchLower)) &&
         (filterModel === "all" || group.model === filterModel)
       );
     });
+
     if (sortConfig.key) {
       result.sort((a, b) => {
         let valA = a[sortConfig.key];
@@ -1077,7 +1352,7 @@ export default function InventorySystem() {
       });
     }
     return result;
-  }, [groupedInventory, searchTerm, filterModel, sortConfig]);
+  }, [groupedInventory, debouncedSearch, filterModel, sortConfig]);
 
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -1093,97 +1368,11 @@ export default function InventorySystem() {
     return Array.from(models).sort();
   }, [groupedInventory]);
 
-  // ESTES SÃO OS TOTAIS QUE ESTAVAM FALTANDO NO CONTEXTO ANTERIOR
   const totalItems = inventory.filter((i) => i.status === "in_stock").length;
   const totalValue = groupedInventory.reduce(
     (acc, group) => acc + group.price * group.quantity,
     0
   );
-
-  // --- EXPORT FUNCTIONS (MOVED HERE TO ACCESS GROUPEDINVENTORY AND TOTALS) ---
-  const handleExportXLSX = () => {
-    if (!window.XLSX) {
-      showNotification("Carregando bibliotecas...", "warning");
-      return;
-    }
-    if (filteredAndSortedGroups.length === 0) {
-      showNotification("Nada para exportar.", "warning");
-      return;
-    }
-
-    const exportData = filteredAndSortedGroups.map((group) => ({
-      SKU: group.sku,
-      Produto: group.name,
-      Modelo: group.model,
-      Quantidade: group.displayQuantity,
-      Reservado: group.reservedQuantity,
-      Preço: group.price,
-      Total: group.price * group.displayQuantity,
-      Ultima_Modificacao: group.lastModifiedStr || "-",
-    }));
-
-    const ws = window.XLSX.utils.json_to_sheet(exportData);
-    const wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, ws, "Estoque Atual");
-    window.XLSX.writeFile(
-      wb,
-      `estoque_${new Date().toISOString().split("T")[0]}.xlsx`
-    );
-  };
-
-  const handleExportPDF = () => {
-    if (!window.jspdf || !window.jspdf.jsPDF) {
-      showNotification(
-        "Carregando bibliotecas... Tente novamente em instantes.",
-        "warning"
-      );
-      return;
-    }
-    if (filteredAndSortedGroups.length === 0) {
-      showNotification("Nada para exportar.", "warning");
-      return;
-    }
-
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-
-    doc.setFontSize(18);
-    doc.text("Relatório de Estoque", 14, 22);
-    doc.setFontSize(11);
-    doc.text(`Data: ${new Date().toLocaleString()}`, 14, 30);
-    doc.text(
-      `Total de Itens (Líquido): ${
-        totalItems - reservations.reduce((acc, r) => acc + r.quantity, 0)
-      }`,
-      14,
-      36
-    );
-
-    const tableColumn = ["SKU", "Produto", "Modelo", "Disp.", "Res.", "Preço"];
-    const tableRows = [];
-
-    filteredAndSortedGroups.forEach((group) => {
-      const productData = [
-        group.sku,
-        group.name,
-        group.model,
-        group.displayQuantity,
-        group.reservedQuantity > 0 ? group.reservedQuantity : "-",
-        `R$ ${group.price.toFixed(2)}`,
-      ];
-      tableRows.push(productData);
-    });
-
-    doc.autoTable({
-      head: [tableColumn],
-      body: tableRows,
-      startY: 45,
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [22, 160, 133] },
-    });
-
-    doc.save(`relatorio_estoque_${new Date().toISOString().split("T")[0]}.pdf`);
-  };
 
   const requestSort = (key) => {
     setSortConfig({
@@ -1202,93 +1391,6 @@ export default function InventorySystem() {
       <ChevronDown size={14} />
     );
   };
-
-  // --- REPORT LOGIC ---
-  const setReportRange = (days) => {
-    const end = new Date();
-    const start = new Date();
-    if (days === "month") {
-      start.setDate(1);
-    } else {
-      start.setDate(end.getDate() - days);
-    }
-    setReportStartDate(start.toISOString().split("T")[0]);
-    setReportEndDate(end.toISOString().split("T")[0]);
-    setCurrentReportPage(1);
-  };
-
-  const reportData = useMemo(() => {
-    if (activeTab !== "reports") return [];
-    const events = [];
-    const start = new Date(reportStartDate + "T00:00:00");
-    const end = new Date(reportEndDate + "T23:59:59");
-
-    inventory.forEach((item) => {
-      const details = findCatalogItem(item.sku);
-      const processEvent = (date, type, user) => {
-        const d = date?.toDate ? date.toDate() : new Date(0);
-        if (d >= start && d <= end) {
-          events.push({
-            id: item.id + "_" + type,
-            date: d,
-            type,
-            sku: item.sku,
-            name: details?.name || "N/I",
-            user: user || "-",
-            details,
-          });
-        }
-      };
-
-      if (item.status === "in_stock")
-        processEvent(item.timestamp, "entrada", item.addedBy);
-      if (item.status === "sold")
-        processEvent(item.soldTimestamp, "saida", item.soldBy);
-      if (item.status === "adjusted_out")
-        processEvent(item.outTimestamp, "ajuste", item.removedBy);
-    });
-
-    reservations.forEach((res) => {
-      const details = findCatalogItem(res.sku);
-      const resDate = res.createdAt?.toDate
-        ? res.createdAt.toDate()
-        : new Date(0);
-      if (resDate >= start && resDate <= end) {
-        events.push({
-          id: res.id + "_res_created",
-          date: resDate,
-          type: "reserva_criada",
-          sku: res.sku,
-          name: details?.name || "N/I",
-          user: res.createdBy || "-",
-          details,
-        });
-      }
-    });
-
-    return events.sort((a, b) => b.date - a.date);
-  }, [
-    inventory,
-    reservations,
-    reportStartDate,
-    reportEndDate,
-    activeTab,
-    catalog,
-  ]);
-
-  const paginatedReportData = useMemo(() => {
-    const startIndex = (currentReportPage - 1) * itemsPerPage;
-    return reportData.slice(startIndex, startIndex + itemsPerPage);
-  }, [reportData, currentReportPage, itemsPerPage]);
-
-  const totalReportPages = Math.ceil(reportData.length / itemsPerPage);
-  const reportStats = useMemo(() => {
-    return {
-      entries: reportData.filter((e) => e.type === "entrada").length,
-      sales: reportData.filter((e) => e.type === "saida").length,
-      adjustments: reportData.filter((e) => e.type === "ajuste").length,
-    };
-  }, [reportData]);
 
   // --- RENDER ---
   if (!isAuthenticated) {
@@ -1548,22 +1650,15 @@ export default function InventorySystem() {
       <header className="bg-slate-900 text-white p-4 shadow-lg sticky top-0 z-20">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3 w-full md:w-auto">
-            {/* --- INÍCIO DA TROCA DO LOGO --- */}
             <div className="h-10 w-10 bg-white rounded-lg flex items-center justify-center overflow-hidden">
-              {/* Se tiver o link da imagem, use a linha de baixo (tira as barras // do começo): */}
-              {
-                <img
-                  src="https://www.semprejoias.com.br/favicon/34692/sjoiasfav.png"
-                  alt="Logo"
-                  className="w-full h-full object-contain"
-                />
-              }
+              <img
+                src="https://www.semprejoias.com.br/favicon/34692/sjoiasfav.png"
+                alt="Logo"
+                className="w-full h-full object-contain"
+              />
             </div>
-
             <div className="flex-1">
-              {/* Mude o nome aqui: */}
-              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.3 </h1>
-              {/* --- FIM DA TROCA --- */}
+              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.5</h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>
                   Operador:{" "}
@@ -1660,6 +1755,16 @@ export default function InventorySystem() {
           >
             <BarChart2 size={18} /> RELATÓRIOS
           </button>
+          <button
+            onClick={() => setActiveTab("config")}
+            className={`flex-1 min-w-[100px] py-4 text-sm font-medium border-b-2 flex justify-center gap-2 ${
+              activeTab === "config"
+                ? "border-red-500 text-red-600"
+                : "border-transparent text-slate-500"
+            }`}
+          >
+            <Settings size={18} /> CONFIG
+          </button>
         </div>
       </div>
 
@@ -1679,9 +1784,10 @@ export default function InventorySystem() {
           </div>
         )}
 
+        {/* --- NOVA ABA CONFERENCIA COM BUFFER --- */}
         {activeTab === "conference" && (
-          <div className="flex flex-col items-center justify-center py-6 md:py-12">
-            <div className="w-full max-w-lg bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200 text-center relative overflow-hidden">
+          <div className="flex flex-col items-center justify-center py-6">
+            <div className="w-full max-w-lg bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200 text-center relative overflow-hidden mb-8">
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 to-purple-500"></div>
               <div className="mb-6">
                 <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-100">
@@ -1691,7 +1797,7 @@ export default function InventorySystem() {
                   Leitor Ativo
                 </h2>
                 <p className="text-slate-500 mt-2 text-sm">
-                  Bipe para adicionar ao estoque
+                  Bipe para a lista temporária (Buffer)
                 </p>
               </div>
               <input
@@ -1699,64 +1805,156 @@ export default function InventorySystem() {
                 type="text"
                 value={barcodeInput}
                 onChange={(e) => setBarcodeInput(e.target.value)}
-                onKeyDown={handleScan}
-                disabled={!db}
+                onKeyDown={handleScanToBuffer}
+                disabled={!db || isCommitting}
                 className="w-full h-16 px-6 text-3xl font-mono text-center border-2 border-slate-300 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-50 outline-none transition-all uppercase placeholder:text-slate-300 disabled:bg-slate-100"
-                placeholder={db ? "BIPAR..." : "..."}
+                placeholder={isCommitting ? "ENVIANDO..." : "BIPAR..."}
               />
-              <button
-                onClick={handleResetStock}
-                className="mt-8 text-xs text-red-400 hover:text-red-600 flex items-center gap-1 mx-auto border border-red-100 px-3 py-1 rounded-full hover:bg-red-50 transition-colors"
-              >
-                <RotateCcw size={12} /> Reiniciar Contagem
-              </button>
             </div>
-            <div className="w-full max-w-2xl mt-8 space-y-3">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-2">
-                Últimos Lidos (Log)
-              </h3>
-              {inventory.slice(0, 5).map((item, idx) => {
-                const details = findCatalogItem(item.sku);
-                return (
-                  <div
-                    key={item.id || idx}
-                    className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4"
-                  >
-                    <div className="w-12 h-12 bg-slate-50 rounded-lg flex items-center justify-center shrink-0 overflow-hidden border border-slate-100">
-                      {details?.image ? (
-                        <img
-                          src={details.image}
-                          alt=""
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <Package size={20} className="text-slate-300" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-blue-600 text-sm">
-                          {item.sku}
-                        </span>
-                        {item.status !== "in_stock" && (
-                          <span className="text-[9px] bg-red-100 text-red-700 px-1 rounded">
-                            VENDIDO
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-slate-600 truncate">
-                        {details?.name || "Item não identificado"}
-                      </p>
-                      <span className="text-[10px] text-slate-400">
-                        Adicionado por: {item.addedBy || "N/A"}
-                      </span>
-                    </div>
-                    <span className="text-xs text-slate-400">
-                      {item.dateIn.split(" ")[1]}
-                    </span>
+
+            {/* ÁREA DO BUFFER */}
+            <div className="w-full max-w-3xl">
+              <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <List size={20} className="text-blue-600" />
+                    <h3 className="font-bold text-slate-700">
+                      Itens Lidos na Sessão: {scannedBuffer.length}
+                    </h3>
                   </div>
-                );
-              })}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleClearBuffer}
+                      disabled={scannedBuffer.length === 0 || isCommitting}
+                      className="px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-100 transition-colors disabled:opacity-50"
+                    >
+                      DESCARTAR
+                    </button>
+                    <button
+                      onClick={handleCommitBuffer}
+                      disabled={scannedBuffer.length === 0 || isCommitting}
+                      className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isCommitting ? (
+                        <RefreshCw className="animate-spin" size={14} />
+                      ) : (
+                        <Save size={14} />
+                      )}
+                      {isCommitting ? "ENVIANDO..." : "ENVIAR PRO ESTOQUE"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-[400px] overflow-y-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-100 text-xs text-slate-500 uppercase font-bold sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3">SKU</th>
+                        <th className="px-4 py-3">Produto</th>
+                        <th className="px-4 py-3 w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {paginatedBuffer.map((item) => (
+                        <tr key={item.tempId} className="hover:bg-blue-50/50">
+                          <td className="px-4 py-2 font-mono font-bold text-blue-600 text-xs">
+                            {item.sku}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className="block text-xs font-medium text-slate-700 truncate max-w-[200px]">
+                              {item.name}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {item.baseSku}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <button
+                              onClick={() => removeItemFromBuffer(item.tempId)}
+                              className="text-slate-300 hover:text-red-500 p-1"
+                              title="Remover da lista"
+                            >
+                              <X size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {scannedBuffer.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan="3"
+                            className="px-6 py-12 text-center text-slate-400"
+                          >
+                            <div className="flex flex-col items-center gap-2">
+                              <Barcode size={32} className="opacity-20" />
+                              <p>Lista vazia. Comece a bipar!</p>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Paginação Simples do Buffer */}
+                {totalBufferPages > 1 && (
+                  <div className="bg-slate-50 px-4 py-2 border-t flex justify-between items-center text-xs text-slate-500">
+                    <span>
+                      Página {bufferPage} de {totalBufferPages}
+                    </span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setBufferPage((p) => Math.max(1, p - 1))}
+                        disabled={bufferPage === 1}
+                        className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setBufferPage((p) =>
+                            Math.min(totalBufferPages, p + 1)
+                          )
+                        }
+                        disabled={bufferPage === totalBufferPages}
+                        className="p-1 rounded bg-white border hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- NOVA ABA CONFIGURAÇÕES (DANGER ZONE) --- */}
+        {activeTab === "config" && (
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="w-full max-w-2xl">
+              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-8 text-center shadow-lg">
+                <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <ShieldAlert size={48} />
+                </div>
+                <h2 className="text-2xl font-bold text-red-800 mb-2">
+                  Zona de Perigo
+                </h2>
+                <p className="text-red-600 mb-8 max-w-md mx-auto">
+                  Ações nesta área são irreversíveis e afetam todo o banco de
+                  dados. Use apenas se souber exatamente o que está fazendo.
+                </p>
+
+                <button
+                  onClick={handleResetStock}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-3 mx-auto"
+                >
+                  <Trash2 size={24} />
+                  APAGAR TODO O ESTOQUE
+                </button>
+                <p className="mt-4 text-xs text-red-400 font-bold uppercase tracking-widest">
+                  Requer confirmação dupla + código de segurança
+                </p>
+              </div>
             </div>
           </div>
         )}

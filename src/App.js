@@ -92,7 +92,6 @@ export default function InventorySystem() {
   const [loginError, setLoginError] = useState(false);
 
   // --- APP STATES ---
-  // MUDANÇA: Aba padrão agora é 'stock'
   const [activeTab, setActiveTab] = useState("stock");
   const [catalog, setCatalog] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -125,9 +124,7 @@ export default function InventorySystem() {
   const [itemsPerPage] = useState(50);
   const [zoomedImage, setZoomedImage] = useState(null);
   const [editModal, setEditModal] = useState(null);
-
-  // --- NOVO: MODAL DE RESERVA RÁPIDA ---
-  const [quickResModal, setQuickResModal] = useState(null); // Guarda o item sendo reservado
+  const [quickResModal, setQuickResModal] = useState(null);
   const [qrQty, setQrQty] = useState("1");
   const [qrNote, setQrNote] = useState("");
 
@@ -138,7 +135,7 @@ export default function InventorySystem() {
   const [selectedSkus, setSelectedSkus] = useState(new Set());
   const [selectedReservations, setSelectedReservations] = useState(new Set());
 
-  // --- FORM RESERVA (ABA RESERVAS) ---
+  // --- FORM RESERVA ---
   const [resSku, setResSku] = useState("");
   const [resQty, setResQty] = useState("1");
   const [resNote, setResNote] = useState("");
@@ -234,7 +231,7 @@ export default function InventorySystem() {
     }
   }, []);
 
-  // --- 2. CATALOG & FETCHERS ---
+  // --- 2. CATALOG PROCESSING ---
   const processCatalogData = (rows) => {
     if (!rows || rows.length === 0) return [];
     const headers = rows[0].map((h) => String(h).trim().toLowerCase());
@@ -603,7 +600,6 @@ export default function InventorySystem() {
     return { physical, reserved, available: physical - reserved };
   };
 
-  // --- NOVA LÓGICA DE RESERVAS (FIFO) ---
   const reservationsWithStatus = useMemo(() => {
     const skus = {};
     reservations.forEach((r) => {
@@ -1433,6 +1429,7 @@ export default function InventorySystem() {
   const totalPages = Math.ceil(filteredAndSortedGroups.length / itemsPerPage);
 
   // --- OTIMIZAÇÃO: FILTRO DE MODELOS DINÂMICO (CORREÇÃO PEDIDA) ---
+  // A lista de modelos no <select> agora reage ao que você digitou na busca.
   const modelsAvailableInSearch = useMemo(() => {
     // 1. Filtra primeiro pela pesquisa (debouncedSearch)
     const searchLower = normalizeText(debouncedSearch);
@@ -1454,7 +1451,18 @@ export default function InventorySystem() {
       if (item.model && item.model !== "-") models.add(item.model);
     });
     return Array.from(models).sort();
-  }, [groupedInventory, debouncedSearch]); // Recalcula sempre que a pesquisa muda
+  }, [groupedInventory, debouncedSearch]);
+
+  // --- BUGFIX: "Filtro Fantasma" ---
+  // Se o modelo selecionado sumir da lista (porque mudei a busca), reseta para "Todos"
+  useEffect(() => {
+    if (
+      filterModel !== "all" &&
+      !modelsAvailableInSearch.includes(filterModel)
+    ) {
+      setFilterModel("all");
+    }
+  }, [debouncedSearch, modelsAvailableInSearch, filterModel]);
 
   const totalItems = inventory.filter((i) => i.status === "in_stock").length;
   const totalValue = groupedInventory.reduce(
@@ -1818,13 +1826,13 @@ export default function InventorySystem() {
           <div className="flex items-center gap-3 w-full md:w-auto">
             <div className="h-10 w-10 bg-white rounded-lg flex items-center justify-center overflow-hidden">
               <img
-                src="https://www.semprejoias.com.br/favicon/34692/sjoiasfav.png"
+                src="https://cdn.iset.io/assets/34692/imagens/mkt.png"
                 alt="Logo"
                 className="w-full h-full object-contain"
               />
             </div>
             <div className="flex-1">
-              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.8</h1>
+              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.9</h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>
                   Operador:{" "}

@@ -645,33 +645,39 @@ function InventorySystem() {
     return false;
   };
 
+  // --- AÇÃO: CRIAR RESERVA (Manual via Aba Reservas) ---
   const handleCreateReservation = async (e) => {
     if (e) e.preventDefault();
     if (!db || !user) return;
+
     const skuClean = resSku.toUpperCase().trim();
     const quantity = parseInt(resQty);
+
     if (!skuClean || quantity < 1) {
       showNotification("Dados inválidos.", "warning");
       return;
     }
-    const { available } = getAvailability(skuClean);
-    if (available < quantity) {
-      showNotification(`Estoque insuficiente. Disp: ${available}`, "error");
-      return;
-    }
+
+    // --- REMOVIDA A TRAVA DE ESTOQUE ---
+    // Apenas calculamos para saber se vai ficar negativo, mas não bloqueamos.
+    // const { available } = getAvailability(skuClean);
+    // if (available < quantity) ... (CÓDIGO REMOVIDO)
+
     try {
       await addDoc(
         collection(db, "artifacts", appId, "public", "data", "reservations"),
         {
           sku: skuClean,
-          quantity,
+          quantity: quantity,
           note: resNote.slice(0, 90),
           createdBy: user.name,
           createdAt: serverTimestamp(),
           dateStr: new Date().toLocaleString("pt-BR"),
+          source: "manual", // Identifica que foi feito na mão
+          orderId: "", // Manual geralmente não tem pedido atrelado ainda
         }
       );
-      showNotification("Reserva criada!", "success");
+      showNotification("Reserva criada com sucesso!", "success");
       setResSku("");
       setResQty("1");
       setResNote("");
@@ -682,24 +688,25 @@ function InventorySystem() {
 
   const handleQuickReservation = async () => {
     if (!db || !user || !quickResModal) return;
+
     const skuClean = quickResModal.sku;
     const quantity = parseInt(qrQty);
+
     if (quantity < 1) return showNotification("Qtd inválida.", "warning");
-    const { available } = getAvailability(skuClean);
-    if (available < quantity) {
-      showNotification(`Estoque insuficiente. Disp: ${available}`, "error");
-      return;
-    }
+
+    // --- TRAVA REMOVIDA AQUI TAMBÉM ---
+
     try {
       await addDoc(
         collection(db, "artifacts", appId, "public", "data", "reservations"),
         {
           sku: skuClean,
-          quantity,
+          quantity: quantity,
           note: qrNote.slice(0, 90),
           createdBy: user.name,
           createdAt: serverTimestamp(),
           dateStr: new Date().toLocaleString("pt-BR"),
+          source: "manual_quick",
         }
       );
       showNotification("Reserva criada!", "success");

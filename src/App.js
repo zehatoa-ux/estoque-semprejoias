@@ -159,12 +159,19 @@ export default function InventorySystem() {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // --- HELPER: NORMALIZAÇÃO DE TEXTO ---
+  // --- HELPERS ---
   const normalizeText = (text) => {
     return String(text || "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase();
+  };
+
+  const formatMoney = (val) => {
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(val || 0);
   };
 
   useEffect(() => {
@@ -713,7 +720,6 @@ export default function InventorySystem() {
     }
   };
 
-  // --- NOVA FUNÇÃO: RESERVA RÁPIDA (MODAL) ---
   const handleQuickReservation = async () => {
     if (!db || !user || !quickResModal) return;
     const skuClean = quickResModal.sku;
@@ -1429,9 +1435,7 @@ export default function InventorySystem() {
   const totalPages = Math.ceil(filteredAndSortedGroups.length / itemsPerPage);
 
   // --- OTIMIZAÇÃO: FILTRO DE MODELOS DINÂMICO (CORREÇÃO PEDIDA) ---
-  // A lista de modelos no <select> agora reage ao que você digitou na busca.
   const modelsAvailableInSearch = useMemo(() => {
-    // 1. Filtra primeiro pela pesquisa (debouncedSearch)
     const searchLower = normalizeText(debouncedSearch);
     const matchingItems = groupedInventory.filter((group) => {
       if (!searchLower) return true;
@@ -1445,7 +1449,6 @@ export default function InventorySystem() {
       );
     });
 
-    // 2. Extrai os modelos únicos APENAS desses itens filtrados
     const models = new Set();
     matchingItems.forEach((item) => {
       if (item.model && item.model !== "-") models.add(item.model);
@@ -1453,8 +1456,6 @@ export default function InventorySystem() {
     return Array.from(models).sort();
   }, [groupedInventory, debouncedSearch]);
 
-  // --- BUGFIX: "Filtro Fantasma" ---
-  // Se o modelo selecionado sumir da lista (porque mudei a busca), reseta para "Todos"
   useEffect(() => {
     if (
       filterModel !== "all" &&
@@ -1832,7 +1833,7 @@ export default function InventorySystem() {
               />
             </div>
             <div className="flex-1">
-              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.9</h1>
+              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.10</h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>
                   Operador:{" "}
@@ -2325,9 +2326,15 @@ export default function InventorySystem() {
                           <span className="text-slate-700 text-xs md:text-sm font-medium line-clamp-1">
                             {group.name}
                           </span>
-                          <span className="text-[10px] text-slate-400 block">
-                            {group.baseSku} • {group.model}
-                          </span>
+                          {/* PREÇO ADICIONADO AQUI */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">
+                              {formatMoney(group.price)}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {group.baseSku} • {group.model}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-500">
                           <div className="flex items-center gap-1 font-medium">
@@ -2522,71 +2529,99 @@ export default function InventorySystem() {
                             }
                           />
                         </th>
+                        <th className="px-4 py-3 w-12">Foto</th>
                         <th className="px-4 py-3">Status</th>
                         <th className="px-4 py-3">Data</th>
-                        <th className="px-4 py-3">SKU</th>
+                        <th className="px-4 py-3">Produto</th>
                         <th className="px-4 py-3">Obs</th>
                         <th className="px-4 py-3 text-right">Qtd</th>
                         <th className="px-4 py-3 text-center">Ação</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {reservationsWithStatus.map((res) => (
-                        <tr key={res.id} className="hover:bg-yellow-50/30">
-                          <td className="px-4 py-3 text-center">
-                            <input
-                              type="checkbox"
-                              className="w-4 h-4 rounded border-slate-300"
-                              checked={selectedReservations.has(res.id)}
-                              onChange={() => toggleSelectReservation(res.id)}
-                            />
-                          </td>
-                          <td className="px-4 py-3">
-                            {res.status === "ok" && (
-                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-green-100 text-green-700 px-2 py-1 rounded">
-                                <CheckCircle size={10} /> OK
-                              </span>
-                            )}
-                            {res.status === "partial" && (
-                              <span
-                                className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded"
-                                title={`Faltam ${res.missing} peças`}
+                      {reservationsWithStatus.map((res) => {
+                        const details = findCatalogItem(res.sku);
+                        return (
+                          <tr key={res.id} className="hover:bg-yellow-50/30">
+                            <td className="px-4 py-3 text-center">
+                              <input
+                                type="checkbox"
+                                className="w-4 h-4 rounded border-slate-300"
+                                checked={selectedReservations.has(res.id)}
+                                onChange={() => toggleSelectReservation(res.id)}
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="w-10 h-10 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
+                                {details?.image ? (
+                                  <img
+                                    src={details.image}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <Package
+                                    size={16}
+                                    className="text-slate-300"
+                                  />
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              {res.status === "ok" && (
+                                <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-green-100 text-green-700 px-2 py-1 rounded">
+                                  <CheckCircle size={10} /> OK
+                                </span>
+                              )}
+                              {res.status === "partial" && (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded"
+                                  title={`Faltam ${res.missing} peças`}
+                                >
+                                  <AlertOctagon size={10} /> Parcial
+                                </span>
+                              )}
+                              {res.status === "missing" && (
+                                <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-1 rounded">
+                                  <XCircle size={10} /> Sem Estoque
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-500">
+                              {res.dateStr?.split(" ")[0] || "-"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-bold text-blue-600 text-xs">
+                                {res.sku}
+                              </div>
+                              <div className="text-xs text-slate-700 truncate max-w-[150px]">
+                                {details?.name || "N/I"}
+                              </div>
+                              <div className="text-[10px] font-bold text-emerald-600">
+                                {formatMoney(details?.price)}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 max-w-xs truncate">
+                              {res.note}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold">
+                              {res.quantity}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                onClick={() => handleCancelReservation(res.id)}
+                                className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50"
                               >
-                                <AlertOctagon size={10} /> Parcial
-                              </span>
-                            )}
-                            {res.status === "missing" && (
-                              <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-red-100 text-red-700 px-2 py-1 rounded">
-                                <XCircle size={10} /> Sem Estoque
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-slate-500">
-                            {res.dateStr?.split(" ")[0] || "-"}
-                          </td>
-                          <td className="px-4 py-3 font-mono font-bold text-slate-700">
-                            {res.sku}
-                          </td>
-                          <td className="px-4 py-3 text-slate-600 max-w-xs truncate">
-                            {res.note}
-                          </td>
-                          <td className="px-4 py-3 text-right font-bold">
-                            {res.quantity}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <button
-                              onClick={() => handleCancelReservation(res.id)}
-                              className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50"
-                            >
-                              <X size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                                <X size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {reservations.length === 0 && (
                         <tr>
                           <td
-                            colSpan="7"
+                            colSpan="8"
                             className="px-6 py-12 text-center text-slate-400"
                           >
                             Nenhuma reserva ativa.

@@ -10,8 +10,21 @@ import {
   Filter,
   User,
   Bot,
+  Factory,
 } from "lucide-react";
 import { formatMoney } from "../utils/formatters";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "../config/firebase";
+import { APP_COLLECTION_ID } from "../config/constants";
+
+// Importando o novo Modal
+import ProductionConversionModal from "../components/modals/ProductionConversionModal";
 
 export default function ReservationsTab({
   resSku,
@@ -32,17 +45,17 @@ export default function ReservationsTab({
 }) {
   const [filterUser, setFilterUser] = useState("all");
 
-  // Garante que a lista não quebre no primeiro render
+  // State para controlar qual reserva está sendo convertida
+  const [conversionData, setConversionData] = useState(null);
+
   const rawList =
     reservationsWithStatus?.length > 0 ? reservationsWithStatus : reservations;
 
-  // 1. Extrair lista única de usuários para o filtro
   const usersList = useMemo(() => {
     const users = new Set(rawList.map((r) => r.createdBy || "Desconhecido"));
     return Array.from(users).sort();
   }, [rawList]);
 
-  // 2. Filtrar a lista com base no usuário selecionado
   const filteredList = useMemo(() => {
     if (filterUser === "all") return rawList;
     return rawList.filter(
@@ -50,9 +63,71 @@ export default function ReservationsTab({
     );
   }, [rawList, filterUser]);
 
+  // Passo 1: Abre o Modal
+  const openConversionModal = (reserva) => {
+    setConversionData(reserva);
+  };
+
+  // Passo 2: Recebe os dados preenchidos e salva no banco
+  const handleConfirmConversion = async (enrichedData) => {
+    try {
+      // Separa o ID antigo do resto dos dados
+      const { id: oldId, ...dataToSave } = enrichedData;
+
+      // 1. Cria na coleção production_orders
+      await addDoc(
+        collection(
+          db,
+          "artifacts",
+          APP_COLLECTION_ID,
+          "public",
+          "data",
+          "production_orders"
+        ),
+        {
+          ...dataToSave, // Salva sem o ID antigo conflituoso
+          status: "SOLICITACAO",
+          originalReservationId: oldId, // Salvamos o ID antigo num campo separado, por segurança
+          convertedAt: serverTimestamp(),
+        }
+      );
+
+      // ... resto do código (deleteDoc, etc)
+
+      // 2. Apaga da coleção reservations
+      await deleteDoc(
+        doc(
+          db,
+          "artifacts",
+          APP_COLLECTION_ID,
+          "public",
+          "data",
+          "reservations",
+          enrichedData.id
+        )
+      );
+
+      alert("Enviado para Produção com sucesso!");
+      setConversionData(null); // Fecha o modal
+    } catch (error) {
+      alert("Erro ao converter: " + error.message);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* --- BLOCO 1: FORMULÁRIO DE NOVA RESERVA (AGORA NO TOPO) --- */}
+      {/* Modal de Conversão (Renderizado Condicionalmente) */}
+      {conversionData && (
+        <ProductionConversionModal
+          isOpen={!!conversionData}
+          reservation={conversionData}
+          onClose={() => setConversionData(null)}
+          onConfirm={handleConfirmConversion}
+          findCatalogItem={findCatalogItem}
+        />
+      )}
+
+      {/* FORMULÁRIO */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm uppercase tracking-wide">
           <Bookmark size={18} className="text-yellow-500" /> Nova Reserva Manual
@@ -69,7 +144,7 @@ export default function ReservationsTab({
               type="text"
               value={resSku}
               onChange={(e) => setResSku(e.target.value)}
-              className="w-full p-2.5 border border-slate-300 rounded-lg uppercase font-mono text-sm focus:border-blue-500 outline-none"
+              className="w-full p-2.5 border border-slate-300 rounded-lg uppercase font-mono text-sm outline-none"
               placeholder="Ex: DIR-NAV-Z-16"
             />
           </div>
@@ -82,7 +157,7 @@ export default function ReservationsTab({
               min="1"
               value={resQty}
               onChange={(e) => setResQty(e.target.value)}
-              className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none"
+              className="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none"
             />
           </div>
           <div className="flex-[2] w-full">
@@ -94,7 +169,7 @@ export default function ReservationsTab({
               maxLength={90}
               value={resNote}
               onChange={(e) => setResNote(e.target.value)}
-              className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:border-blue-500 outline-none"
+              className="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none"
               placeholder="Ex: Cliente Maria (Zap)"
             />
           </div>
@@ -107,31 +182,25 @@ export default function ReservationsTab({
         </form>
       </div>
 
-      {/* --- BLOCO 2: LISTA DE RESERVAS (LARGURA TOTAL) --- */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        {/* Cabeçalho da Tabela e Filtros */}
         <div className="p-4 border-b bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-4">
             <h3 className="font-bold text-slate-700 text-sm">
               Reservas Ativas ({filteredList.length})
             </h3>
-
-            {/* Botão de Apagar Múltiplos (Só aparece se tiver seleção) */}
             {selectedReservations.size > 0 && (
               <button
                 onClick={handleBulkCancelReservations}
-                className="flex items-center gap-1 text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded hover:bg-red-200 font-bold transition-colors animate-pulse"
+                className="flex items-center gap-1 text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded hover:bg-red-200 font-bold transition-colors"
               >
                 <Trash2 size={14} /> Cancelar ({selectedReservations.size})
               </button>
             )}
           </div>
-
-          {/* Filtro de Usuário */}
           <div className="flex items-center gap-2">
             <Filter size={16} className="text-slate-400" />
             <select
-              className="bg-white border border-slate-300 text-slate-600 text-xs rounded-lg p-2 outline-none focus:border-blue-500"
+              className="bg-white border border-slate-300 text-slate-600 text-xs rounded-lg p-2 outline-none"
               value={filterUser}
               onChange={(e) => setFilterUser(e.target.value)}
             >
@@ -145,7 +214,6 @@ export default function ReservationsTab({
           </div>
         </div>
 
-        {/* Tabela */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-bold border-b">
@@ -170,7 +238,7 @@ export default function ReservationsTab({
                 <th className="px-4 py-3 w-12">Foto</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Data</th>
-                <th className="px-4 py-3">Criado Por</th> {/* NOVA COLUNA */}
+                <th className="px-4 py-3">Criado Por</th>
                 <th className="px-4 py-3">Produto</th>
                 <th className="px-4 py-3">Obs</th>
                 <th className="px-4 py-3 text-right">Qtd</th>
@@ -182,8 +250,7 @@ export default function ReservationsTab({
                 const details = findCatalogItem(res.sku);
                 const isAuto =
                   res.source &&
-                  (res.source.includes("n8n") || res.source.includes("auto")); // Identifica se é robô
-
+                  (res.source.includes("n8n") || res.source.includes("auto"));
                 return (
                   <tr
                     key={res.id}
@@ -200,12 +267,11 @@ export default function ReservationsTab({
                       />
                     </td>
                     <td className="px-4 py-3">
-                      <div className="w-10 h-10 bg-slate-100 rounded overflow-hidden flex items-center justify-center group relative">
+                      <div className="w-10 h-10 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
                         {details?.image ? (
                           <img
                             src={details.image}
-                            alt=""
-                            className="w-full h-full object-cover transition-transform hover:scale-150"
+                            className="w-full h-full object-cover"
                           />
                         ) : (
                           <Package size={16} className="text-slate-300" />
@@ -219,10 +285,7 @@ export default function ReservationsTab({
                         </span>
                       )}
                       {res.status === "partial" && (
-                        <span
-                          className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded"
-                          title={`Faltam ${res.missing} peças`}
-                        >
+                        <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
                           <AlertOctagon size={10} /> Parcial
                         </span>
                       )}
@@ -238,8 +301,6 @@ export default function ReservationsTab({
                         {res.dateStr?.split(" ")[1] || ""}
                       </span>
                     </td>
-
-                    {/* COLUNA QUEM CRIOU */}
                     <td className="px-4 py-3">
                       <div
                         className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded w-fit ${
@@ -252,19 +313,12 @@ export default function ReservationsTab({
                         {res.createdBy || "N/I"}
                       </div>
                     </td>
-
                     <td className="px-4 py-3">
                       <div className="font-bold text-blue-600 text-xs">
                         {res.sku}
                       </div>
-                      <div
-                        className="text-xs text-slate-700 truncate max-w-[200px]"
-                        title={details?.name}
-                      >
+                      <div className="text-xs text-slate-700 truncate max-w-[200px]">
                         {details?.name || "Item não catalogado"}
-                      </div>
-                      <div className="text-[10px] font-bold text-emerald-600">
-                        {formatMoney(details?.price)}
                       </div>
                     </td>
                     <td
@@ -276,11 +330,19 @@ export default function ReservationsTab({
                     <td className="px-4 py-3 text-right font-bold text-sm">
                       {res.quantity}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 text-center flex justify-center gap-2">
+                      {/* BOTÃO MUDADO AQUI: Agora chama openConversionModal */}
+                      <button
+                        onClick={() => openConversionModal(res)}
+                        className="text-purple-600 hover:bg-purple-100 p-1.5 rounded transition-colors"
+                        title="Enviar para Produção"
+                      >
+                        <Factory size={16} />
+                      </button>
                       <button
                         onClick={() => handleCancelReservation(res.id)}
                         className="text-slate-400 hover:text-red-600 p-1.5 rounded hover:bg-red-50 transition-colors"
-                        title="Cancelar Reserva"
+                        title="Cancelar"
                       >
                         <X size={16} />
                       </button>
@@ -288,16 +350,6 @@ export default function ReservationsTab({
                   </tr>
                 );
               })}
-              {filteredList.length === 0 && (
-                <tr>
-                  <td
-                    colSpan="9"
-                    className="px-6 py-12 text-center text-slate-400"
-                  >
-                    Nenhuma reserva encontrada para este filtro.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>

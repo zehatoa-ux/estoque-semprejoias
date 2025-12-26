@@ -52,7 +52,7 @@ import {
 } from "./config/constants";
 import { normalizeText, formatMoney } from "./utils/formatters";
 
-// Contexto de Autenticação (NOVO)
+// Contexto de Autenticação
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
 // Componentes
@@ -67,15 +67,16 @@ import ReservationsTab from "./tabs/ReservationsTab";
 import ConfigTab from "./tabs/ConfigTab";
 import SalesTab from "./tabs/SalesTab";
 import ReportsTab from "./tabs/ReportsTab";
+import ProductionTab from "./tabs/ProductionTab"; // <--- NOVA IMPORTAÇÃO
 
 const TAB_LABELS = {
   stock: "ESTOQUE",
   conference: "CONFERÊNCIA",
   reservations: "RESERVAS",
+  production: "PRODUÇÃO", // <--- NOVA ABA
   sales: "BAIXA",
   reports: "RELATÓRIOS",
   config: "CONFIG",
-  // production: "PRODUÇÃO" // Futuro
 };
 
 // Componente Wrapper para injetar o AuthProvider
@@ -210,10 +211,12 @@ function InventorySystem() {
     };
   }, [user, db, appId]);
 
-  // --- PROCESSAMENTO DO CATÁLOGO (Mantido igual) ---
+  // --- PROCESSAMENTO DO CATÁLOGO (Atualizado para ler Tags) ---
   const processCatalogData = (rows) => {
     if (!rows || rows.length === 0) return [];
     const headers = rows[0].map((h) => String(h).trim().toLowerCase());
+
+    // Mapeamento de colunas
     let skuIdx = headers.indexOf("sku");
     if (skuIdx === -1) skuIdx = 3;
     let nameIdx = headers.indexOf("name");
@@ -224,12 +227,20 @@ function InventorySystem() {
     if (imageIdx === -1) imageIdx = 15;
     let priceIdx = headers.indexOf("price");
     if (priceIdx === -1) priceIdx = 16;
+
+    // NOVO: Procura a coluna de tags (pode estar como 'tags' ou 'tag')
+    let tagsIdx = headers.indexOf("tags");
+    if (tagsIdx === -1) tagsIdx = headers.indexOf("tag");
+
     const products = [];
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || row.length <= skuIdx) continue;
+
       const sku = String(row[skuIdx]).trim().toUpperCase();
       if (sku.length < 2) continue;
+
+      // Tratamento de Imagem e Preço (Mantido igual)
       let finalImage = null;
       const rawImage = row[imageIdx];
       if (rawImage) {
@@ -245,6 +256,7 @@ function InventorySystem() {
           }
         } else if (imgStr.startsWith("http")) finalImage = imgStr;
       }
+
       let finalPrice = 0;
       const rawPrice = row[priceIdx];
       if (rawPrice !== undefined && rawPrice !== null) {
@@ -258,12 +270,17 @@ function InventorySystem() {
           finalPrice = parseFloat(pStr) || 0;
         }
       }
+
+      // NOVO: Captura as tags cruas
+      const rawTags = tagsIdx !== -1 ? row[tagsIdx] : "[]";
+
       products.push({
         sku,
         name: row[nameIdx] || "Sem Nome",
         model: row[modelIdx] || "-",
         price: finalPrice,
         image: finalImage,
+        tags: rawTags, // Salva para usarmos no modal
       });
     }
     return products;
@@ -350,9 +367,12 @@ function InventorySystem() {
     });
     return map;
   }, [catalog]);
+
+  // --- FIX BLINDAGEM DE ERRO (SKU) ---
   const findCatalogItem = (sku) => {
     if (!sku) return null;
-    const s = sku.toUpperCase().trim();
+    // Força conversão para String para evitar erro .toUpperCase() em nulos
+    const s = String(sku).toUpperCase().trim();
     if (catalogMap.has(s)) return { ...catalogMap.get(s), baseSku: s };
     const parts = s.split("-");
     if (parts.length > 1) {
@@ -645,39 +665,32 @@ function InventorySystem() {
     return false;
   };
 
-  // --- AÇÃO: CRIAR RESERVA (Manual via Aba Reservas) ---
+  // --- TRAVA DE ESTOQUE REMOVIDA PARA RESERVAS ---
   const handleCreateReservation = async (e) => {
     if (e) e.preventDefault();
     if (!db || !user) return;
-
     const skuClean = resSku.toUpperCase().trim();
     const quantity = parseInt(resQty);
-
     if (!skuClean || quantity < 1) {
       showNotification("Dados inválidos.", "warning");
       return;
     }
 
-    // --- REMOVIDA A TRAVA DE ESTOQUE ---
-    // Apenas calculamos para saber se vai ficar negativo, mas não bloqueamos.
-    // const { available } = getAvailability(skuClean);
-    // if (available < quantity) ... (CÓDIGO REMOVIDO)
-
+    // Sem verificação de saldo (available < quantity)
     try {
       await addDoc(
         collection(db, "artifacts", appId, "public", "data", "reservations"),
         {
           sku: skuClean,
-          quantity: quantity,
+          quantity,
           note: resNote.slice(0, 90),
           createdBy: user.name,
           createdAt: serverTimestamp(),
           dateStr: new Date().toLocaleString("pt-BR"),
-          source: "manual", // Identifica que foi feito na mão
-          orderId: "", // Manual geralmente não tem pedido atrelado ainda
+          source: "manual",
         }
       );
-      showNotification("Reserva criada com sucesso!", "success");
+      showNotification("Reserva criada!", "success");
       setResSku("");
       setResQty("1");
       setResNote("");
@@ -688,20 +701,17 @@ function InventorySystem() {
 
   const handleQuickReservation = async () => {
     if (!db || !user || !quickResModal) return;
-
     const skuClean = quickResModal.sku;
     const quantity = parseInt(qrQty);
-
     if (quantity < 1) return showNotification("Qtd inválida.", "warning");
 
-    // --- TRAVA REMOVIDA AQUI TAMBÉM ---
-
+    // Sem verificação de saldo
     try {
       await addDoc(
         collection(db, "artifacts", appId, "public", "data", "reservations"),
         {
           sku: skuClean,
-          quantity: quantity,
+          quantity,
           note: qrNote.slice(0, 90),
           createdBy: user.name,
           createdAt: serverTimestamp(),
@@ -1213,6 +1223,7 @@ function InventorySystem() {
                 {tab === "stock" && <ClipboardList size={18} />}
                 {tab === "conference" && <Barcode size={18} />}
                 {tab === "reservations" && <Bookmark size={18} />}
+                {tab === "production" && <Factory size={18} />}
                 {tab === "sales" && <Upload size={18} />}
                 {tab === "reports" && <BarChart2 size={18} />}
                 {tab === "config" && <Settings size={18} />}
@@ -1544,6 +1555,11 @@ function InventorySystem() {
             }}
             findCatalogItem={findCatalogItem}
           />
+        )}
+
+        {/* --- NOVA ABA DE PRODUÇÃO --- */}
+        {activeTab === "production" && hasAccess("production") && (
+          <ProductionTab user={user} findCatalogItem={findCatalogItem} />
         )}
 
         {activeTab === "sales" && hasAccess("sales") && (

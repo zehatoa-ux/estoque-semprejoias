@@ -68,12 +68,14 @@ import ConfigTab from "./tabs/ConfigTab";
 import SalesTab from "./tabs/SalesTab";
 import ReportsTab from "./tabs/ReportsTab";
 import ProductionTab from "./tabs/ProductionTab"; // <--- NOVA IMPORTAÇÃO
+import OrdersTab from "./tabs/OrdersTab";
 
 const TAB_LABELS = {
   stock: "ESTOQUE",
   conference: "CONFERÊNCIA",
   reservations: "RESERVAS",
-  production: "PRODUÇÃO", // <--- NOVA ABA
+  production: "PRODUÇÃO",
+  orders: "PEDIDOS LOG.", // <--- MUDAMOS PARA CÁ (LOGÍSTICA AO LADO DA FÁBRICA)
   sales: "BAIXA",
   reports: "RELATÓRIOS",
   config: "CONFIG",
@@ -1570,6 +1572,7 @@ function InventorySystem() {
             totalReportPages={totalReportPages}
           />
         )}
+        {activeTab === "orders" && hasAccess("production") && <OrdersTab />}
 
         {activeTab === "config" && hasAccess("config") && (
           <ConfigTab handleResetStock={handleResetStock} />

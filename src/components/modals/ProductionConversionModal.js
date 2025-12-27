@@ -10,9 +10,10 @@ import {
   Edit3,
   AlertTriangle,
   ShieldCheck,
-} from "lucide-react"; // Adicionei ShieldCheck
+  PackageCheck,
+} from "lucide-react";
 
-// Lista Oficial de Cores de Pedras
+// Cores
 const STONE_COLORS = [
   "VERMELHO",
   "ROSA",
@@ -35,15 +36,23 @@ const STONE_COLORS = [
   "SEM PEDRA",
 ];
 
+// Status para Estoque
+const STOCK_STATUS_OPTIONS = [
+  { id: "GRAVACAO", label: "Gravação" },
+  { id: "MANUTENCAO", label: "Ajuste/manutenção" },
+  { id: "FALTA_BANCA", label: "Falha banca" },
+  { id: "PEDIDO_PRONTO", label: "Pedido Pronto" },
+];
+
 export default function ProductionConversionModal({
   isOpen,
   onClose,
   onConfirm,
   reservation,
   findCatalogItem,
+  inventory = [],
   isEditing = false,
 }) {
-  // --- 1. BLINDAGEM ---
   const safeRes = reservation || {};
   const safeOrder = safeRes.order || {};
   const safeCustomer = safeOrder.customer || {};
@@ -52,7 +61,29 @@ export default function ProductionConversionModal({
   const safeAddress = safeShipping.address || {};
   const safeSpecs = safeRes.specs || {};
 
-  // --- 2. EXTRAÇÃO CATÁLOGO ---
+  // --- 1. LÓGICA DE ESTOQUE INTELIGENTE (RELAXADA) ---
+  const stockItem = useMemo(() => {
+    // Se não tiver inventário carregado ou SKU na reserva, aborta
+    if (isEditing || !inventory || inventory.length === 0 || !safeRes.sku)
+      return null;
+
+    const targetSku = String(safeRes.sku).trim().toUpperCase();
+
+    // DEBUG: Ajuda a ver o que está acontecendo no Console (F12)
+    // console.log("Procurando SKU:", targetSku, "Em inventário de tamanho:", inventory.length);
+
+    return inventory.find((i) => {
+      const itemSku = String(i.sku || "")
+        .trim()
+        .toUpperCase();
+      // REMOVIDO: && i.status === 'in_stock' -> Agora só confia no SKU
+      return itemSku === targetSku;
+    });
+  }, [inventory, safeRes.sku, isEditing]);
+
+  const hasStock = !!stockItem;
+
+  // --- EXTRAÇÃO CATÁLOGO ---
   const catalogData = useMemo(() => {
     if (!findCatalogItem || !safeRes.sku) return {};
     const item = findCatalogItem(safeRes.sku);
@@ -81,14 +112,35 @@ export default function ProductionConversionModal({
     return extracted;
   }, [safeRes.sku, findCatalogItem]);
 
-  // --- 3. STATE ---
+  // --- STATE ---
   const [formData, setFormData] = useState({
     specs: {},
     order: { customer: {}, payment: {} },
     shipping: { address: {} },
+    initialStatus: "SOLICITACAO",
+    useStock: false,
   });
 
-  // --- 4. POPULATE ---
+  // Ativa modo estoque automaticamente se encontrar item
+  useEffect(() => {
+    if (isOpen && hasStock) {
+      // Se achou no estoque, já marca o checkbox e sugere GRAVAÇÃO
+      setFormData((prev) => ({
+        ...prev,
+        useStock: true,
+        initialStatus: "GRAVACAO",
+      }));
+    } else {
+      // Se não, reseta
+      setFormData((prev) => ({
+        ...prev,
+        useStock: false,
+        initialStatus: "SOLICITACAO",
+      }));
+    }
+  }, [isOpen, hasStock]);
+
+  // --- POPULATE ---
   useEffect(() => {
     if (isOpen && reservation) {
       let fixedStoneType = safeSpecs.stoneType || "";
@@ -114,7 +166,9 @@ export default function ProductionConversionModal({
         }
       }
 
-      setFormData({
+      // IMPORTANTE: Preservar o estado de 'useStock' e 'initialStatus' calculados no useEffect anterior
+      setFormData((prev) => ({
+        ...prev,
         specs: {
           size: safeSpecs.size || "",
           stoneType: fixedStoneType,
@@ -155,7 +209,7 @@ export default function ProductionConversionModal({
             zip: safeAddress.zip || "",
           },
         },
-      });
+      }));
     }
   }, [isOpen, reservation, catalogData]);
 
@@ -194,26 +248,20 @@ export default function ProductionConversionModal({
         ...formData.shipping,
         address: { ...safeAddress, ...formData.shipping.address },
       },
+      status: formData.useStock ? formData.initialStatus : "SOLICITACAO",
+      fromStock: formData.useStock,
+      stockItemId: formData.useStock ? stockItem?.id : null,
     };
     onConfirm(finalData);
   };
 
   const showFullForm = !isEditing;
-
-  // Lógica de Avisos
-  const selectedColor = formData.specs.stoneColor
-    ? formData.specs.stoneColor.trim().toUpperCase()
-    : "";
-  const stdColor = formData.specs.standardColor
-    ? formData.specs.standardColor.trim().toUpperCase()
-    : "";
   const showColorWarning =
-    selectedColor &&
-    stdColor &&
-    stdColor !== "MANUAL" &&
-    selectedColor !== stdColor;
-
-  // Lógica Pedra Natural
+    formData.specs.stoneColor &&
+    formData.specs.standardColor &&
+    formData.specs.standardColor !== "MANUAL" &&
+    formData.specs.stoneColor.trim().toUpperCase() !==
+      formData.specs.standardColor.trim().toUpperCase();
   const isNatural = formData.specs.stoneType === "Natural";
 
   return (
@@ -231,9 +279,7 @@ export default function ProductionConversionModal({
             </div>
             <div>
               <h2 className="font-bold text-lg leading-tight">
-                {isEditing
-                  ? "Editar Especificações"
-                  : "Ordem de Produção Completa"}
+                {isEditing ? "Editar Especificações" : "Converter para Pedido"}
               </h2>
               <p className="text-purple-200 text-xs font-mono">
                 {safeRes.sku}{" "}
@@ -253,11 +299,68 @@ export default function ProductionConversionModal({
 
         {/* CORPO */}
         <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar flex-1">
+          {/* --- BLOCO DE ESTOQUE --- */}
+          {hasStock && !isEditing && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col md:flex-row gap-4 items-center justify-between mb-4 animate-fade-in">
+              <div className="flex items-center gap-3">
+                <div className="bg-emerald-100 p-2 rounded-full text-emerald-600">
+                  <PackageCheck size={24} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-emerald-800 text-sm">
+                    Disponível em Estoque!
+                  </h3>
+                  <p className="text-xs text-emerald-600 font-medium">
+                    Temos este item em estoque, selecione uma das opções:
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 w-full md:w-auto bg-white p-3 rounded-lg border border-emerald-200 shadow-sm">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 select-none">
+                  <input
+                    type="checkbox"
+                    className="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500"
+                    checked={formData.useStock}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        useStock: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span className="uppercase">Usar Estoque</span>
+                </label>
+
+                {formData.useStock && (
+                  <div className="pl-3 border-l border-slate-200 ml-2">
+                    <select
+                      className="bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs rounded p-2 font-bold outline-none cursor-pointer hover:bg-emerald-200 transition-colors"
+                      value={formData.initialStatus}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          initialStatus: e.target.value,
+                        }))
+                      }
+                    >
+                      {STOCK_STATUS_OPTIONS.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 1. ESPECIFICAÇÕES TÉCNICAS */}
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
             <h3 className="font-bold text-yellow-800 mb-3 flex items-center gap-2 text-sm uppercase">
               <Gem size={16} /> Especificações da Joia
             </h3>
-
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 border-b border-yellow-200 pb-4">
               <div>
                 <label className="lbl">Aro / Tamanho</label>
@@ -284,11 +387,10 @@ export default function ProductionConversionModal({
                   <option value="Natural">Natural</option>
                   <option value="ND">Não Aplica</option>
                 </select>
-                {/* AVISO PEDRA NATURAL */}
                 {isNatural && (
                   <div className="flex items-center gap-1 mt-1 text-[9px] font-bold text-blue-600 animate-pulse">
                     <ShieldCheck size={10} />
-                    <span>Atenção: Pedra Natural</span>
+                    <span>Pedra Natural</span>
                   </div>
                 )}
               </div>
@@ -318,13 +420,10 @@ export default function ProductionConversionModal({
                       </option>
                     )}
                 </select>
-                {/* AVISO COR DIFERENTE */}
                 {showColorWarning && (
                   <div className="flex items-center gap-1 mt-1 text-[9px] font-bold text-amber-600 animate-pulse">
                     <AlertTriangle size={10} />
-                    <span>
-                      Difere do Padrão ({formData.specs.standardColor})
-                    </span>
+                    <span>Difere do Padrão</span>
                   </div>
                 )}
               </div>
@@ -347,7 +446,6 @@ export default function ProductionConversionModal({
                 />
               </div>
             </div>
-
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div>
                 <label className="lbl">Cor Padrão</label>
@@ -388,9 +486,9 @@ export default function ProductionConversionModal({
             </div>
           </div>
 
+          {/* DADOS EXTRAS */}
           {showFullForm && (
             <>
-              {/* BLOCO CLIENTE / PAGAMENTO (MANTIDO) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
                   <h3 className="font-bold text-blue-800 mb-3 flex items-center gap-2 text-sm uppercase">
@@ -458,7 +556,6 @@ export default function ProductionConversionModal({
                     </div>
                   </div>
                 </div>
-
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col">
                   <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm uppercase">
                     <CreditCard size={16} /> Pagamento & Notas
@@ -493,7 +590,6 @@ export default function ProductionConversionModal({
                       <label className="lbl">Observações</label>
                       <textarea
                         className="w-full p-2 border rounded-lg text-sm h-24 resize-none focus:border-purple-500 outline-none"
-                        placeholder="Recados importantes..."
                         value={formData.order.notes}
                         onChange={(e) =>
                           update("order", "notes", e.target.value)
@@ -503,8 +599,6 @@ export default function ProductionConversionModal({
                   </div>
                 </div>
               </div>
-
-              {/* BLOCO LOGÍSTICA (MANTIDO) */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                 <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm uppercase">
                   <Truck size={16} /> Logística de Envio
@@ -544,7 +638,6 @@ export default function ProductionConversionModal({
                     />
                   </div>
                 </div>
-
                 <div className="bg-white p-3 rounded-lg border border-slate-200">
                   <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-400 uppercase">
                     <MapPin size={12} /> Endereço de Entrega
@@ -594,7 +687,6 @@ export default function ProductionConversionModal({
                         }
                       />
                     </div>
-
                     <div className="col-span-3">
                       <label className="lbl">Rua / Logradouro</label>
                       <input
@@ -627,7 +719,6 @@ export default function ProductionConversionModal({
                         }
                       />
                     </div>
-
                     <div className="col-span-2">
                       <label className="lbl">Complemento</label>
                       <input

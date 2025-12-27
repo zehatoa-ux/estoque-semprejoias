@@ -1554,6 +1554,7 @@ function InventorySystem() {
               setSelectedReservations(s);
             }}
             findCatalogItem={findCatalogItem}
+            inventory={inventory}
           />
         )}
 

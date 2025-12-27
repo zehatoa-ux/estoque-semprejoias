@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   ShieldCheck,
   PackageCheck,
+  Layers,
 } from "lucide-react";
 
 // Cores
@@ -53,6 +54,7 @@ export default function ProductionConversionModal({
   inventory = [],
   isEditing = false,
 }) {
+  // Helpers para garantir que não quebre se vier null
   const safeRes = reservation || {};
   const safeOrder = safeRes.order || {};
   const safeCustomer = safeOrder.customer || {};
@@ -61,27 +63,21 @@ export default function ProductionConversionModal({
   const safeAddress = safeShipping.address || {};
   const safeSpecs = safeRes.specs || {};
 
-  // --- 1. LÓGICA DE ESTOQUE INTELIGENTE (RELAXADA) ---
+  // --- 1. LÓGICA DE ESTOQUE INTELIGENTE ---
   const stockItem = useMemo(() => {
-    // Se não tiver inventário carregado ou SKU na reserva, aborta
     if (isEditing || !inventory || inventory.length === 0 || !safeRes.sku)
       return null;
-
     const targetSku = String(safeRes.sku).trim().toUpperCase();
-
-    // DEBUG: Ajuda a ver o que está acontecendo no Console (F12)
-    // console.log("Procurando SKU:", targetSku, "Em inventário de tamanho:", inventory.length);
-
     return inventory.find((i) => {
       const itemSku = String(i.sku || "")
         .trim()
         .toUpperCase();
-      // REMOVIDO: && i.status === 'in_stock' -> Agora só confia no SKU
       return itemSku === targetSku;
     });
   }, [inventory, safeRes.sku, isEditing]);
 
   const hasStock = !!stockItem;
+  const isPEItem = stockItem?.isPE || false;
 
   // --- EXTRAÇÃO CATÁLOGO ---
   const catalogData = useMemo(() => {
@@ -121,17 +117,15 @@ export default function ProductionConversionModal({
     useStock: false,
   });
 
-  // Ativa modo estoque automaticamente se encontrar item
+  // Ativa modo estoque se encontrar item
   useEffect(() => {
     if (isOpen && hasStock) {
-      // Se achou no estoque, já marca o checkbox e sugere GRAVAÇÃO
       setFormData((prev) => ({
         ...prev,
         useStock: true,
         initialStatus: "GRAVACAO",
       }));
     } else {
-      // Se não, reseta
       setFormData((prev) => ({
         ...prev,
         useStock: false,
@@ -166,7 +160,6 @@ export default function ProductionConversionModal({
         }
       }
 
-      // IMPORTANTE: Preservar o estado de 'useStock' e 'initialStatus' calculados no useEffect anterior
       setFormData((prev) => ({
         ...prev,
         specs: {
@@ -200,12 +193,12 @@ export default function ProductionConversionModal({
           price: safeShipping.price || "",
           tracking: safeShipping.rastreamento || safeShipping.tracking || "",
           address: {
-            destinatario: safeAddress.destinatario || "",
+            destinatario: safeAddress.destinatario || safeCustomer.name || "",
             street: safeAddress.street || "",
             number: safeAddress.number || "",
             complemento: safeAddress.complemento || "",
             city: safeAddress.city || "",
-            statecode: safeAddress.statecode || "",
+            statecode: safeAddress.statecode || safeAddress.state || "",
             zip: safeAddress.zip || "",
           },
         },
@@ -251,6 +244,7 @@ export default function ProductionConversionModal({
       status: formData.useStock ? formData.initialStatus : "SOLICITACAO",
       fromStock: formData.useStock,
       stockItemId: formData.useStock ? stockItem?.id : null,
+      isPE: formData.useStock ? stockItem?.isPE || false : false,
     };
     onConfirm(finalData);
   };
@@ -301,26 +295,54 @@ export default function ProductionConversionModal({
         <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar flex-1">
           {/* --- BLOCO DE ESTOQUE --- */}
           {hasStock && !isEditing && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col md:flex-row gap-4 items-center justify-between mb-4 animate-fade-in">
+            <div
+              className={`border rounded-xl p-4 flex flex-col md:flex-row gap-4 items-center justify-between mb-4 animate-fade-in ${
+                isPEItem
+                  ? "bg-orange-50 border-orange-200"
+                  : "bg-emerald-50 border-emerald-200"
+              }`}
+            >
               <div className="flex items-center gap-3">
-                <div className="bg-emerald-100 p-2 rounded-full text-emerald-600">
-                  <PackageCheck size={24} />
+                <div
+                  className={`p-2 rounded-full ${
+                    isPEItem
+                      ? "bg-orange-100 text-orange-600"
+                      : "bg-emerald-100 text-emerald-600"
+                  }`}
+                >
+                  {isPEItem ? <Layers size={24} /> : <PackageCheck size={24} />}
                 </div>
                 <div>
-                  <h3 className="font-bold text-emerald-800 text-sm">
-                    Disponível em Estoque!
+                  <h3
+                    className={`font-bold text-sm ${
+                      isPEItem ? "text-orange-800" : "text-emerald-800"
+                    }`}
+                  >
+                    {isPEItem
+                      ? "Item em Produção de Estoque (PE)"
+                      : "Disponível em Estoque Físico!"}
                   </h3>
-                  <p className="text-xs text-emerald-600 font-medium">
-                    Temos este item em estoque, selecione uma das opções:
+                  <p
+                    className={`text-xs font-medium ${
+                      isPEItem ? "text-orange-600" : "text-emerald-600"
+                    }`}
+                  >
+                    {isPEItem
+                      ? "O item atual está em produção de estoque, deseja usar?"
+                      : "Temos este item em estoque, selecione uma das opções:"}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 w-full md:w-auto bg-white p-3 rounded-lg border border-emerald-200 shadow-sm">
+              <div className="flex items-center gap-3 w-full md:w-auto bg-white p-3 rounded-lg border shadow-sm">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 select-none">
                   <input
                     type="checkbox"
-                    className="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500"
+                    className={`w-5 h-5 rounded focus:ring-opacity-50 ${
+                      isPEItem
+                        ? "text-orange-600 focus:ring-orange-500"
+                        : "text-emerald-600 focus:ring-emerald-500"
+                    }`}
                     checked={formData.useStock}
                     onChange={(e) =>
                       setFormData((prev) => ({
@@ -329,13 +351,15 @@ export default function ProductionConversionModal({
                       }))
                     }
                   />
-                  <span className="uppercase">Usar Estoque</span>
+                  <span className="uppercase">
+                    Usar {isPEItem ? "PE" : "Estoque"}
+                  </span>
                 </label>
 
                 {formData.useStock && (
                   <div className="pl-3 border-l border-slate-200 ml-2">
                     <select
-                      className="bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs rounded p-2 font-bold outline-none cursor-pointer hover:bg-emerald-200 transition-colors"
+                      className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded p-2 font-bold outline-none cursor-pointer hover:bg-slate-100 transition-colors"
                       value={formData.initialStatus}
                       onChange={(e) =>
                         setFormData((prev) => ({
@@ -427,8 +451,10 @@ export default function ProductionConversionModal({
                   </div>
                 )}
               </div>
+
+              {/* ALTERAÇÃO AQUI: Label agora é FINALIZAÇÃO */}
               <div>
-                <label className="lbl">Banho / Acab.</label>
+                <label className="lbl">Finalização</label>
                 <input
                   type="text"
                   className="ipt"
@@ -436,6 +462,7 @@ export default function ProductionConversionModal({
                   onChange={(e) => update("specs", "finishing", e.target.value)}
                 />
               </div>
+
               <div className="col-span-2 md:col-span-4">
                 <label className="lbl">Gravação</label>
                 <input

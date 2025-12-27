@@ -1160,7 +1160,7 @@ function InventorySystem() {
               />
             </div>
             <div className="flex-1">
-              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.93</h1>
+              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.94</h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>
                   Olá, <strong className="text-white">{user.name}</strong>
@@ -1177,22 +1177,6 @@ function InventorySystem() {
             </button>
           </div>
           <div className="flex gap-4 text-sm w-full md:w-auto items-center justify-end">
-            <div className="bg-slate-800 px-4 py-2 rounded-lg text-center">
-              <span className="block text-xs text-slate-400 uppercase">
-                Peças
-              </span>
-              <span className="text-lg font-bold text-green-400">
-                {totalItems}
-              </span>
-            </div>
-            <div className="bg-slate-800 px-4 py-2 rounded-lg text-center hidden sm:block">
-              <span className="block text-xs text-slate-400 uppercase">
-                Valor Total
-              </span>
-              <span className="text-lg font-bold text-blue-400">
-                {formatMoney(totalValue)}
-              </span>
-            </div>
             <button
               onClick={logout}
               className="hidden md:block text-slate-400 hover:text-white ml-2"

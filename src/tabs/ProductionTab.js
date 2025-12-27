@@ -20,6 +20,7 @@ import {
   PackageCheck,
   BarChart3,
   TrendingUp,
+  Layers,
 } from "lucide-react";
 import {
   collection,
@@ -84,10 +85,18 @@ const STATUS_CONFIG = {
     label: "VERIFICAR",
     color: "bg-pink-400 text-white border-pink-500",
   },
-  ESTOQUE_FUNDIDO: {
-    label: "ESTOK FUNDIDO",
-    color: "bg-blue-600 text-white border-blue-700",
+
+  // --- NOVOS STATUS DE ESTOQUE ---
+  ESTOQUE_IMPRIMINDO: {
+    label: "ESTOQUE - IMPRIMINDO",
+    color: "bg-cyan-700 text-white border-cyan-800",
   },
+  ESTOQUE_FUNDIDO: {
+    label: "ESTOQUE - FUNDIDO",
+    color: "bg-blue-800 text-white border-blue-900",
+  },
+  // ------------------------------
+
   IMPRIMINDO: {
     label: "IMPRIMINDO",
     color: "bg-orange-500 text-white border-orange-600",
@@ -121,6 +130,7 @@ const STATUS_CONFIG = {
   },
 };
 
+// --- ORDEM DO KANBAN ---
 const STATUS_ORDER = [
   "MODELAGEM",
   "GRAVACAO",
@@ -129,8 +139,10 @@ const STATUS_ORDER = [
   "SOLICITACAO",
   "IMPRIMIR",
   "IMPRIMINDO",
+  "ESTOQUE_IMPRIMINDO",
   "CURA",
   "FUNDICAO",
+  "ESTOQUE_FUNDIDO",
   "BANCA",
   "POLIMENTO",
   "RESINA_FINALIZACAO",
@@ -627,12 +639,20 @@ export default function ProductionTab({ user, findCatalogItem }) {
         </div>
         <div className="flex justify-between items-start pr-6">
           <div className="flex items-center gap-1">
-            {order.fromStock && (
+            {order.fromStock && !order.isPE && (
               <div
                 className="bg-emerald-700 text-white text-[8px] font-bold px-1 rounded cursor-help"
                 title="Item retirado do estoque"
               >
                 E
+              </div>
+            )}
+            {order.isPE && (
+              <div
+                className="bg-orange-500 text-white text-[8px] font-bold px-1 rounded flex items-center gap-0.5 cursor-help"
+                title="Produção de Estoque"
+              >
+                <Layers size={8} /> PE
               </div>
             )}
             {order.printed && (
@@ -677,8 +697,9 @@ export default function ProductionTab({ user, findCatalogItem }) {
               <AlertTriangle size={10} className="text-amber-500" />
             )}
           </div>
+          {/* MUDANÇA AQUI: Label Finalização */}
           <div className="flex items-center gap-1">
-            <span className="text-slate-400">Banho:</span>
+            <span className="text-slate-400">Finalização:</span>
             <span className="font-bold">{order.specs?.finishing || "-"}</span>
           </div>
           {order.specs?.engraving && order.specs.engraving !== "ND" && (
@@ -961,12 +982,20 @@ export default function ProductionTab({ user, findCatalogItem }) {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
-                                {order.fromStock && (
+                                {order.fromStock && !order.isPE && (
                                   <div
                                     className="bg-emerald-700 text-white text-[10px] font-bold px-1.5 py-0.5 rounded cursor-help"
                                     title="Item retirado do estoque"
                                   >
                                     E
+                                  </div>
+                                )}
+                                {order.isPE && (
+                                  <div
+                                    className="bg-orange-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 cursor-help"
+                                    title="Produção de Estoque"
+                                  >
+                                    <Layers size={8} /> PE
                                   </div>
                                 )}
                                 {order.printed && (
@@ -1015,12 +1044,15 @@ export default function ProductionTab({ user, findCatalogItem }) {
                                       )}
                                     </span>
                                   )}
+
+                                {/* MUDANÇA AQUI: Label de Finalização */}
                                 {order.specs?.finishing &&
                                   order.specs.finishing !== "ND" && (
                                     <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                      Banho: {order.specs.finishing}
+                                      Finalização: {order.specs.finishing}
                                     </span>
                                   )}
+
                                 {order.specs?.engraving &&
                                   order.specs.engraving !== "ND" && (
                                     <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-100 italic">

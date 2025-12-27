@@ -11,6 +11,10 @@ import {
   Kanban,
   Edit3,
   Filter,
+  Clock,
+  AlertTriangle,
+  ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import {
   collection,
@@ -20,15 +24,15 @@ import {
   doc,
   updateDoc,
   serverTimestamp,
+  addDoc,
+  deleteDoc,
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { APP_COLLECTION_ID } from "../config/constants";
-import { normalizeText } from "../utils/formatters"; // Certifique-se de que essa função existe no utils
-
-// Importar o Modal para Edição
+import { normalizeText } from "../utils/formatters";
 import ProductionConversionModal from "../components/modals/ProductionConversionModal";
 
-// CORES BASEADAS NA SUA IMAGEM (Aprox. Tailwind)
+// --- CONFIGURAÇÃO DE STATUS ---
 const STATUS_CONFIG = {
   SOLICITACAO: {
     label: "AGUARDANDO ANÁLISE",
@@ -83,7 +87,7 @@ const STATUS_CONFIG = {
   IA_IMPORTED: {
     label: "IA - IMPORTADO",
     color: "bg-yellow-400 text-yellow-900 border-yellow-500",
-  }, // Amarelo Importante
+  },
   IR_PARA_BANCA: {
     label: "IR PARA BANCA",
     color: "bg-stone-600 text-white border-stone-700",
@@ -112,7 +116,6 @@ const STATUS_CONFIG = {
   },
 };
 
-// Ordem de exibição (Seguindo fluxo lógico aproximado)
 const STATUS_ORDER = [
   "SOLICITACAO",
   "IA_IMPORTED",
@@ -139,10 +142,53 @@ const STATUS_ORDER = [
   "CANCELADO",
 ];
 
+const getBusinessDaysDiff = (startDate) => {
+  if (!startDate) return 0;
+  const start = startDate.toDate ? startDate.toDate() : new Date(startDate);
+  const end = new Date();
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  let count = 0;
+  let curDate = new Date(start.getTime());
+  while (curDate < end) {
+    const dayOfWeek = curDate.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) count++;
+    curDate.setDate(curDate.getDate() + 1);
+  }
+  return count;
+};
+
+const DaysBadge = ({ date }) => {
+  const days = getBusinessDaysDiff(date);
+  let colorClass = "bg-emerald-100 text-emerald-700 border-emerald-200";
+  let Icon = Clock;
+  if (days >= 5 && days < 8) {
+    colorClass = "bg-yellow-100 text-yellow-700 border-yellow-200";
+    Icon = AlertTriangle;
+  } else if (days >= 8 && days <= 9) {
+    colorClass = "bg-red-100 text-red-700 border-red-200 animate-pulse";
+    Icon = AlertTriangle;
+  } else if (days > 9) {
+    colorClass = "bg-purple-900 text-white border-purple-950";
+    Icon = AlertTriangle;
+  }
+  return (
+    <div
+      className={`flex flex-col items-center justify-center border rounded-lg px-2 py-1 min-w-[50px] ${colorClass}`}
+    >
+      <div className="flex items-center gap-1 text-[10px] uppercase font-bold">
+        <Icon size={10} />
+        <span>{days > 9 ? "+9" : days} Dias</span>
+      </div>
+      <span className="text-[9px] opacity-80 font-mono">ÚTEIS</span>
+    </div>
+  );
+};
+
 export default function ProductionTab({ user, findCatalogItem }) {
   const [orders, setOrders] = useState([]);
   const [filterText, setFilterText] = useState("");
-  const [viewMode, setViewMode] = useState("list"); // 'list' ou 'kanban'
+  const [viewMode, setViewMode] = useState("kanban");
   const [editingOrder, setEditingOrder] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -157,7 +203,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
         "data",
         "production_orders"
       ),
-      orderBy("createdAt", "desc")
+      orderBy("createdAt", "asc")
     );
     const unsub = onSnapshot(q, (snap) => {
       setOrders(snap.docs.map((d) => ({ ...d.data(), id: d.id })));
@@ -165,24 +211,16 @@ export default function ProductionTab({ user, findCatalogItem }) {
     return () => unsub();
   }, []);
 
-  // Lógica de Filtro Avançada
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      // 1. Filtro de Status
       if (statusFilter !== "all" && order.status !== statusFilter) return false;
-
-      // 2. Filtro de Texto (Busca em tudo)
       if (!filterText) return true;
-
       const search = normalizeText(filterText);
       const sku = normalizeText(order.sku || "");
       const orderNum = normalizeText(order.order?.number || "");
       const client = normalizeText(order.order?.customer?.name || "");
-
-      // Busca no Catálogo (Nome do Produto)
       const catalogItem = findCatalogItem ? findCatalogItem(order.sku) : null;
       const prodName = normalizeText(catalogItem?.name || "");
-
       return (
         sku.includes(search) ||
         orderNum.includes(search) ||
@@ -192,22 +230,55 @@ export default function ProductionTab({ user, findCatalogItem }) {
     });
   }, [orders, filterText, statusFilter, findCatalogItem]);
 
-  // Agrupamento
   const groupedOrders = useMemo(() => {
     const groups = {};
     STATUS_ORDER.forEach((id) => (groups[id] = []));
-
     filteredOrders.forEach((order) => {
       const st = order.status || "SOLICITACAO";
-      if (!groups[st]) groups[st] = []; // Caso venha um status novo/desconhecido
+      if (!groups[st]) groups[st] = [];
       groups[st].push(order);
+    });
+    Object.keys(groups).forEach((key) => {
+      groups[key].sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
+        return dateA - dateB;
+      });
     });
     return groups;
   }, [filteredOrders]);
 
-  const handleMoveStatus = async (orderId, newStatus) => {
+  // --- LOGGING SYSTEM (AUDITORIA) ---
+  const logAction = async (action, details, orderId, sku) => {
     try {
-      // CORREÇÃO DO CAMINHO DO DOCUMENTO
+      await addDoc(
+        collection(
+          db,
+          "artifacts",
+          APP_COLLECTION_ID,
+          "public",
+          "data",
+          "system_logs"
+        ),
+        {
+          type: "production",
+          action: action,
+          details: details,
+          targetId: orderId,
+          targetSku: sku,
+          user: user?.name || "Sistema",
+          timestamp: serverTimestamp(),
+          dateStr: new Date().toLocaleString("pt-BR"),
+        }
+      );
+    } catch (e) {
+      console.error("Erro ao logar:", e);
+    }
+  };
+
+  // --- ACTIONS ---
+  const handleMoveStatus = async (orderId, newStatus, sku) => {
+    try {
       const docRef = doc(
         db,
         "artifacts",
@@ -222,9 +293,15 @@ export default function ProductionTab({ user, findCatalogItem }) {
         lastUpdate: serverTimestamp(),
         updatedBy: user?.name || "Sistema",
       });
+      // LOG
+      logAction(
+        "MUDANCA_STATUS",
+        `Status alterado para ${newStatus}`,
+        orderId,
+        sku
+      );
     } catch (error) {
       alert("Erro ao mover: " + error.message);
-      console.error(error);
     }
   };
 
@@ -239,21 +316,111 @@ export default function ProductionTab({ user, findCatalogItem }) {
         "production_orders",
         updatedData.id
       );
-      // Atualiza apenas o que é relevante para produção (Specs)
       await updateDoc(docRef, {
         specs: updatedData.specs,
         updatedBy: user?.name || "Sistema",
         lastUpdate: serverTimestamp(),
       });
       setEditingOrder(null);
+      // LOG (Assumindo que temos o SKU no objeto ou buscando depois, aqui simplifiquei)
+      logAction(
+        "EDICAO_TECNICA",
+        "Especificações da joia alteradas",
+        updatedData.id,
+        "SKU NA"
+      );
     } catch (e) {
       alert("Erro ao salvar: " + e.message);
     }
   };
 
+  // --- DELETE COM CONFIRMAÇÃO ESCANDALOSA ---
+  const handleDeleteOrder = async (order) => {
+    if (order.status !== "CANCELADO") return;
+
+    // Confirmação 1: Texto
+    const confirmCode = order.sku;
+    const userInput = window.prompt(
+      `⛔️ ATENÇÃO! ZONA DE PERIGO ⛔️\n\n` +
+        `Você está prestes a APAGAR PERMANENTEMENTE o pedido de produção do item:\n` +
+        `${order.sku} - ${order.order?.customer?.name}\n\n` +
+        `Essa ação não pode ser desfeita e sumirá dos relatórios.\n\n` +
+        `Para confirmar, DIGITE O SKU EXATO do produto abaixo:`
+    );
+
+    if (userInput !== confirmCode) {
+      return alert(
+        "❌ Código incorreto. A exclusão foi cancelada para sua segurança."
+      );
+    }
+
+    try {
+      await deleteDoc(
+        doc(
+          db,
+          "artifacts",
+          APP_COLLECTION_ID,
+          "public",
+          "data",
+          "production_orders",
+          order.id
+        )
+      );
+      await logAction(
+        "EXCLUSAO_FATAL",
+        `Ordem de Produção apagada permanentemente`,
+        order.id,
+        order.sku
+      );
+      alert("✅ Item apagado com sucesso.");
+    } catch (e) {
+      alert("Erro ao apagar: " + e.message);
+    }
+  };
+
+  const getSpecsAlert = (order) => {
+    const isNatural = order.specs?.stoneType === "Natural";
+    let isDivergent = false;
+    if (order.specs?.standardColor && order.specs?.stoneColor) {
+      isDivergent =
+        order.specs.standardColor !== "MANUAL" &&
+        order.specs.standardColor.toUpperCase() !==
+          order.specs.stoneColor.toUpperCase();
+    }
+    if (isNatural) return { type: "natural", label: "Pedra Natural" };
+    if (isDivergent) return { type: "divergent", label: "Cor Diferente" };
+    return null;
+  };
+
+  const MiniDashboard = () => (
+    <div className="flex gap-2 overflow-x-auto pb-2 mb-2 custom-scrollbar">
+      {STATUS_ORDER.map((st) => {
+        const count = groupedOrders[st]?.length || 0;
+        if (count === 0 && st !== "SOLICITACAO") return null;
+        const conf = STATUS_CONFIG[st] || {};
+        const colorClass = conf.color?.split(" ")[0] || "bg-gray-200";
+        return (
+          <div
+            key={st}
+            className="flex flex-col items-center justify-center bg-white border rounded-lg px-3 py-1.5 min-w-[80px] shadow-sm shrink-0"
+          >
+            <span className="text-xl font-bold text-slate-700 leading-none">
+              {count}
+            </span>
+            <div className="flex items-center gap-1">
+              <div className={`w-2 h-2 rounded-full ${colorClass}`}></div>
+              <span className="text-[9px] font-bold text-slate-400 uppercase truncate max-w-[80px]">
+                {conf.label || st}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="h-[calc(100vh-140px)] flex flex-col bg-slate-100">
-      {/* MODAL DE EDIÇÃO (Renderizado Condicionalmente) */}
       {editingOrder && (
         <ProductionConversionModal
           isOpen={!!editingOrder}
@@ -265,80 +432,86 @@ export default function ProductionTab({ user, findCatalogItem }) {
         />
       )}
 
-      {/* HEADER DA ABA */}
-      <div className="bg-white p-4 border-b flex flex-col md:flex-row justify-between items-center gap-4 shadow-sm z-10">
-        <div className="flex items-center gap-3">
-          <Factory className="text-purple-600" />
-          <h2 className="font-bold text-slate-800">Produção</h2>
-          <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
-            <button
-              onClick={() => setViewMode("list")}
-              className={`p-1.5 rounded ${
-                viewMode === "list"
-                  ? "bg-white shadow text-purple-600"
-                  : "text-slate-400"
-              }`}
-              title="Lista"
-            >
-              <LayoutList size={18} />
-            </button>
-            <button
-              onClick={() => setViewMode("kanban")}
-              className={`p-1.5 rounded ${
-                viewMode === "kanban"
-                  ? "bg-white shadow text-purple-600"
-                  : "text-slate-400"
-              }`}
-              title="Kanban"
-            >
-              <Kanban size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex gap-2 w-full md:w-auto">
-          {/* Filtro de Status */}
-          <div className="relative">
-            <Filter
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              size={16}
-            />
-            <select
-              className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:border-purple-500 bg-white"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="all">Todos Status</option>
-              {STATUS_ORDER.map((id) => (
-                <option key={id} value={id}>
-                  {STATUS_CONFIG[id]?.label || id}
-                </option>
-              ))}
-            </select>
+      {/* HEADER */}
+      <div className="bg-white px-4 py-3 border-b flex flex-col gap-3 shadow-sm z-10">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Factory className="text-purple-600" />
+            <div>
+              <h2 className="font-bold text-slate-800 leading-none">
+                Produção
+              </h2>
+              <p className="text-[10px] text-slate-400 font-bold mt-1">
+                ORDENADO POR PRIORIDADE (DATA)
+              </p>
+            </div>
+            <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200 ml-4">
+              <button
+                onClick={() => setViewMode("list")}
+                className={`p-1.5 rounded ${
+                  viewMode === "list"
+                    ? "bg-white shadow text-purple-600"
+                    : "text-slate-400"
+                }`}
+                title="Lista"
+              >
+                <LayoutList size={18} />
+              </button>
+              <button
+                onClick={() => setViewMode("kanban")}
+                className={`p-1.5 rounded ${
+                  viewMode === "kanban"
+                    ? "bg-white shadow text-purple-600"
+                    : "text-slate-400"
+                }`}
+                title="Kanban"
+              >
+                <Kanban size={18} />
+              </button>
+            </div>
           </div>
 
-          {/* Busca */}
-          <div className="relative flex-1">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              size={16}
-            />
-            <input
-              type="text"
-              placeholder="Buscar Pedido, SKU, Cliente..."
-              className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:border-purple-500 w-full md:w-64"
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-            />
+          <div className="flex gap-2 w-full md:w-auto">
+            <div className="relative">
+              <Filter
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={16}
+              />
+              <select
+                className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:border-purple-500 bg-white"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">Todos Status</option>
+                {STATUS_ORDER.map((id) => (
+                  <option key={id} value={id}>
+                    {STATUS_CONFIG[id]?.label || id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="relative flex-1">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={16}
+              />
+              <input
+                type="text"
+                placeholder="Buscar..."
+                className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:border-purple-500 w-full md:w-64"
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+              />
+            </div>
           </div>
         </div>
+        <MiniDashboard />
       </div>
 
-      {/* ÁREA DE CONTEÚDO */}
       <div className="flex-1 overflow-auto p-4 custom-scrollbar">
-        {/* --- MODO LISTA (ESTILO MONDAY) --- */}
+        {/* LIST VIEW */}
         {viewMode === "list" && (
-          <div className="space-y-6 max-w-5xl mx-auto">
+          <div className="space-y-6 max-w-6xl mx-auto">
             {STATUS_ORDER.map((statusId) => {
               const items = groupedOrders[statusId] || [];
               if (items.length === 0) return null;
@@ -346,13 +519,11 @@ export default function ProductionTab({ user, findCatalogItem }) {
                 label: statusId,
                 color: "bg-gray-500 text-white",
               };
-
               return (
                 <div
                   key={statusId}
                   className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
                 >
-                  {/* Cabeçalho do Grupo */}
                   <div
                     className={`px-4 py-2 font-bold text-sm flex justify-between items-center ${config.color}`}
                   >
@@ -360,14 +531,13 @@ export default function ProductionTab({ user, findCatalogItem }) {
                       {config.label} ({items.length})
                     </span>
                   </div>
-
-                  {/* Tabela do Grupo */}
                   <table className="w-full text-left text-sm">
                     <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold border-b">
                       <tr>
+                        <th className="px-4 py-2 w-20 text-center">Prazo</th>
                         <th className="px-4 py-2">Item</th>
                         <th className="px-4 py-2">Especificações</th>
-                        <th className="px-4 py-2">Cliente / Pedido</th>
+                        <th className="px-4 py-2">Cliente / Pagamento</th>
                         <th className="px-4 py-2 text-center">Status</th>
                         <th className="px-4 py-2 text-center">Ações</th>
                       </tr>
@@ -377,8 +547,12 @@ export default function ProductionTab({ user, findCatalogItem }) {
                         const catalog = findCatalogItem
                           ? findCatalogItem(order.sku)
                           : null;
+                        const alert = getSpecsAlert(order);
                         return (
                           <tr key={order.id} className="hover:bg-slate-50">
+                            <td className="px-4 py-3">
+                              <DaysBadge date={order.createdAt} />
+                            </td>
                             <td className="px-4 py-3">
                               <div className="font-bold text-blue-600 text-xs">
                                 {order.sku}
@@ -388,7 +562,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-1">
+                              <div className="flex flex-wrap gap-1 items-center">
                                 {order.specs?.size && (
                                   <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] font-bold">
                                     Aro: {order.specs.size}
@@ -401,10 +575,24 @@ export default function ProductionTab({ user, findCatalogItem }) {
                                       {order.specs.stoneColor}
                                     </span>
                                   )}
-                                {order.specs?.engraving && (
-                                  <span className="bg-purple-50 text-purple-800 px-1.5 py-0.5 rounded text-[10px] border border-purple-100">
-                                    ✒️ {order.specs.engraving}
-                                  </span>
+                                {alert && (
+                                  <div
+                                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border font-bold ${
+                                      alert.type === "natural"
+                                        ? "bg-blue-50 text-blue-700 border-blue-200"
+                                        : "bg-amber-50 text-amber-700 border-amber-200"
+                                    }`}
+                                    title={alert.label}
+                                  >
+                                    {alert.type === "natural" ? (
+                                      <ShieldCheck size={10} />
+                                    ) : (
+                                      <AlertTriangle size={10} />
+                                    )}
+                                    <span className="hidden sm:inline">
+                                      {alert.label}
+                                    </span>
+                                  </div>
                                 )}
                               </div>
                             </td>
@@ -412,8 +600,9 @@ export default function ProductionTab({ user, findCatalogItem }) {
                               <div className="font-bold text-slate-700">
                                 {order.order?.customer?.name || "Balcão"}
                               </div>
-                              <div className="text-slate-400">
-                                Ped: {order.order?.number || "-"}
+                              <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                                <Calendar size={10} />{" "}
+                                {order.dateStr?.split(" ")[0]}
                               </div>
                             </td>
                             <td className="px-4 py-3 text-center">
@@ -425,7 +614,11 @@ export default function ProductionTab({ user, findCatalogItem }) {
                                   }`}
                                   value={order.status}
                                   onChange={(e) =>
-                                    handleMoveStatus(order.id, e.target.value)
+                                    handleMoveStatus(
+                                      order.id,
+                                      e.target.value,
+                                      order.sku
+                                    )
                                   }
                                 >
                                   {STATUS_ORDER.map((s) => (
@@ -440,14 +633,24 @@ export default function ProductionTab({ user, findCatalogItem }) {
                                 </select>
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-center">
+                            <td className="px-4 py-3 text-center flex justify-center gap-2">
                               <button
                                 onClick={() => setEditingOrder(order)}
                                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                title="Editar Especificações"
                               >
                                 <Edit3 size={16} />
                               </button>
+
+                              {/* BOTÃO DA MORTE: SÓ APARECE SE CANCELADO */}
+                              {order.status === "CANCELADO" && (
+                                <button
+                                  onClick={() => handleDeleteOrder(order)}
+                                  className="p-1.5 text-red-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                  title="Apagar Definitivamente"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
@@ -460,7 +663,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
           </div>
         )}
 
-        {/* --- MODO KANBAN (COLUNAS) --- */}
+        {/* KANBAN VIEW */}
         {viewMode === "kanban" && (
           <div className="flex gap-4 h-full w-max pb-4">
             {STATUS_ORDER.map((statusId) => {
@@ -469,9 +672,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
                 label: statusId,
                 color: "bg-gray-500 text-white",
               };
-              // Extrai apenas a cor de fundo para o cabeçalho, removendo text/border para não bugar
               const bgClass = config.color.split(" ")[0];
-
               return (
                 <div
                   key={statusId}
@@ -488,63 +689,105 @@ export default function ProductionTab({ user, findCatalogItem }) {
                     </span>
                   </div>
                   <div className="flex-1 overflow-y-auto p-2 space-y-3 custom-scrollbar">
-                    {items.map((order) => (
-                      <div
-                        key={order.id}
-                        className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 hover:shadow-md transition-shadow group relative"
-                      >
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 px-1 rounded">
-                            {order.sku}
-                          </span>
-                          <button
-                            onClick={() => setEditingOrder(order)}
-                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-600"
-                          >
-                            <Edit3 size={12} />
-                          </button>
-                        </div>
-                        <div className="text-xs text-slate-700 font-bold mb-1 truncate">
-                          {order.order?.customer?.name}
-                        </div>
+                    {items.map((order) => {
+                      const alert = getSpecsAlert(order);
+                      return (
+                        <div
+                          key={order.id}
+                          className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 hover:shadow-md transition-shadow group relative flex gap-3"
+                        >
+                          <div className="shrink-0 pt-1">
+                            <DaysBadge date={order.createdAt} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="font-mono text-[10px] font-bold text-blue-600 bg-blue-50 px-1 rounded">
+                                {order.sku}
+                              </span>
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => setEditingOrder(order)}
+                                  className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-600"
+                                >
+                                  <Edit3 size={12} />
+                                </button>
 
-                        {/* Specs Mini */}
-                        <div className="bg-slate-50 p-2 rounded text-[10px] space-y-1 border border-slate-100 text-slate-600">
-                          {order.specs?.size && (
-                            <div>📏 Aro {order.specs.size}</div>
-                          )}
-                          {order.specs?.stoneType && (
-                            <div>💎 {order.specs.stoneType}</div>
-                          )}
-                        </div>
+                                {/* BOTÃO DA MORTE KANBAN */}
+                                {order.status === "CANCELADO" && (
+                                  <button
+                                    onClick={() => handleDeleteOrder(order)}
+                                    className="opacity-0 group-hover:opacity-100 p-1 text-red-300 hover:text-red-600"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-xs text-slate-700 font-bold mb-1 truncate">
+                              {order.order?.customer?.name}
+                            </div>
+                            <div className="text-[9px] text-slate-400 mb-2 flex items-center gap-1">
+                              <Calendar size={9} />{" "}
+                              {order.dateStr?.split(" ")[0]}
+                            </div>
 
-                        {/* Dropdown Escondido (Move no Hover) */}
-                        <div className="mt-2 pt-2 border-t flex justify-between items-center">
-                          <span className="text-[10px] text-slate-400">
-                            PED: {order.order?.number}
-                          </span>
-                          <div className="relative w-6 h-6">
-                            <ArrowRight
-                              size={14}
-                              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                            />
-                            <select
-                              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                              value={order.status}
-                              onChange={(e) =>
-                                handleMoveStatus(order.id, e.target.value)
-                              }
-                            >
-                              {STATUS_ORDER.map((s) => (
-                                <option key={s} value={s}>
-                                  {STATUS_CONFIG[s]?.label}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="bg-slate-50 p-2 rounded text-[10px] space-y-1 border border-slate-100 text-slate-600 mb-2">
+                              {order.specs?.size && (
+                                <div>📏 Aro {order.specs.size}</div>
+                              )}
+                              {order.specs?.stoneType && (
+                                <div>💎 {order.specs.stoneType}</div>
+                              )}
+                              {alert && (
+                                <div
+                                  className={`mt-1 flex items-center gap-1 font-bold ${
+                                    alert.type === "natural"
+                                      ? "text-blue-600"
+                                      : "text-amber-600"
+                                  }`}
+                                >
+                                  {alert.type === "natural" ? (
+                                    <ShieldCheck size={10} />
+                                  ) : (
+                                    <AlertTriangle size={10} />
+                                  )}
+                                  <span>{alert.label}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="pt-1 border-t flex justify-between items-center">
+                              <span className="text-[9px] text-slate-400">
+                                PED: {order.order?.number}
+                              </span>
+                              <div className="relative w-5 h-5">
+                                <ArrowRight
+                                  size={12}
+                                  className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                />
+                                <select
+                                  className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                                  value={order.status}
+                                  onChange={(e) =>
+                                    handleMoveStatus(
+                                      order.id,
+                                      e.target.value,
+                                      order.sku
+                                    )
+                                  }
+                                >
+                                  {STATUS_ORDER.map((s) => (
+                                    <option key={s} value={s}>
+                                      {STATUS_CONFIG[s]?.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );

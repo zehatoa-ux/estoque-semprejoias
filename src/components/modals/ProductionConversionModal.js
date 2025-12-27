@@ -9,7 +9,8 @@ import {
   MapPin,
   Edit3,
   AlertTriangle,
-} from "lucide-react";
+  ShieldCheck,
+} from "lucide-react"; // Adicionei ShieldCheck
 
 // Lista Oficial de Cores de Pedras
 const STONE_COLORS = [
@@ -42,7 +43,7 @@ export default function ProductionConversionModal({
   findCatalogItem,
   isEditing = false,
 }) {
-  // --- 1. BLINDAGEM DE DADOS ---
+  // --- 1. BLINDAGEM ---
   const safeRes = reservation || {};
   const safeOrder = safeRes.order || {};
   const safeCustomer = safeOrder.customer || {};
@@ -51,12 +52,9 @@ export default function ProductionConversionModal({
   const safeAddress = safeShipping.address || {};
   const safeSpecs = safeRes.specs || {};
 
-  // --- 2. EXTRAÇÃO DO CATÁLOGO (Defaults) ---
+  // --- 2. EXTRAÇÃO CATÁLOGO ---
   const catalogData = useMemo(() => {
-    // CORREÇÃO: Removi o "|| isEditing" daqui.
-    // Agora ele SEMPRE tenta carregar as tags do catálogo, mesmo na edição.
     if (!findCatalogItem || !safeRes.sku) return {};
-
     const item = findCatalogItem(safeRes.sku);
     const extracted = {
       standardColor: "MANUAL",
@@ -64,7 +62,6 @@ export default function ProductionConversionModal({
       material: "MANUAL",
       category: "MANUAL",
     };
-
     if (item && item.tags) {
       try {
         let tagsArray =
@@ -82,25 +79,22 @@ export default function ProductionConversionModal({
       } catch (e) {}
     }
     return extracted;
-  }, [safeRes.sku, findCatalogItem]); // Removida dependência isEditing
+  }, [safeRes.sku, findCatalogItem]);
 
-  // --- 3. STATE DO FORMULÁRIO ---
+  // --- 3. STATE ---
   const [formData, setFormData] = useState({
     specs: {},
     order: { customer: {}, payment: {} },
     shipping: { address: {} },
   });
 
-  // --- 4. PREENCHIMENTO INTELIGENTE (POPULATE) ---
+  // --- 4. POPULATE ---
   useEffect(() => {
     if (isOpen && reservation) {
-      // A. CORREÇÃO DE PEDRA (PLURAL -> SINGULAR)
       let fixedStoneType = safeSpecs.stoneType || "";
-      if (fixedStoneType && fixedStoneType.toLowerCase().includes("zircônia")) {
+      if (fixedStoneType && fixedStoneType.toLowerCase().includes("zircônia"))
         fixedStoneType = "Zircônia";
-      }
 
-      // B. CORREÇÃO DE COR (ND -> COR PADRÃO)
       let targetColor = safeSpecs.stoneColor || "";
       const invalidValues = ["ND", "N/D", "SEM COR", "NAO DEFINIDO", ""];
       const isInvalidColor =
@@ -108,12 +102,9 @@ export default function ProductionConversionModal({
       const hasCatalogColor =
         catalogData.standardColor && catalogData.standardColor !== "MANUAL";
 
-      // Só aplica a lógica de fallback se NÃO estivermos editando (para não sobrescrever o que já foi salvo)
-      // OU se estivermos editando mas o valor salvo for inválido
       if (isInvalidColor && hasCatalogColor) {
         const catColorUpper = catalogData.standardColor.toUpperCase();
         const exactMatch = STONE_COLORS.find((c) => c === catColorUpper);
-
         if (exactMatch) targetColor = exactMatch;
         else {
           const partialMatch = STONE_COLORS.find(
@@ -128,7 +119,6 @@ export default function ProductionConversionModal({
           size: safeSpecs.size || "",
           stoneType: fixedStoneType,
           stoneColor: targetColor,
-          // Aqui usamos o catalogData que agora carrega SEMPRE
           standardColor:
             safeSpecs.standardColor || catalogData.standardColor || "",
           jewelryType: safeSpecs.jewelryType || catalogData.jewelryType || "",
@@ -210,7 +200,7 @@ export default function ProductionConversionModal({
 
   const showFullForm = !isEditing;
 
-  // Lógica do Aviso de Cor Diferente
+  // Lógica de Avisos
   const selectedColor = formData.specs.stoneColor
     ? formData.specs.stoneColor.trim().toUpperCase()
     : "";
@@ -222,6 +212,9 @@ export default function ProductionConversionModal({
     stdColor &&
     stdColor !== "MANUAL" &&
     selectedColor !== stdColor;
+
+  // Lógica Pedra Natural
+  const isNatural = formData.specs.stoneType === "Natural";
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
@@ -258,9 +251,8 @@ export default function ProductionConversionModal({
           </button>
         </div>
 
-        {/* CORPO COM SCROLL */}
+        {/* CORPO */}
         <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar flex-1">
-          {/* 1. ESPECIFICAÇÕES TÉCNICAS */}
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
             <h3 className="font-bold text-yellow-800 mb-3 flex items-center gap-2 text-sm uppercase">
               <Gem size={16} /> Especificações da Joia
@@ -279,7 +271,11 @@ export default function ProductionConversionModal({
               <div>
                 <label className="lbl">Tipo de Pedra</label>
                 <select
-                  className="ipt bg-white"
+                  className={`ipt ${
+                    isNatural
+                      ? "bg-blue-50 text-blue-800 border-blue-300 font-bold"
+                      : "bg-white"
+                  }`}
                   value={formData.specs.stoneType}
                   onChange={(e) => update("specs", "stoneType", e.target.value)}
                 >
@@ -288,6 +284,13 @@ export default function ProductionConversionModal({
                   <option value="Natural">Natural</option>
                   <option value="ND">Não Aplica</option>
                 </select>
+                {/* AVISO PEDRA NATURAL */}
+                {isNatural && (
+                  <div className="flex items-center gap-1 mt-1 text-[9px] font-bold text-blue-600 animate-pulse">
+                    <ShieldCheck size={10} />
+                    <span>Atenção: Pedra Natural</span>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="lbl">Cor Escolhida</label>
@@ -308,7 +311,6 @@ export default function ProductionConversionModal({
                       {c}
                     </option>
                   ))}
-                  {/* Mostra a opção extra se a cor atual não estiver na lista */}
                   {formData.specs.stoneColor &&
                     !STONE_COLORS.includes(formData.specs.stoneColor) && (
                       <option value={formData.specs.stoneColor}>
@@ -316,7 +318,7 @@ export default function ProductionConversionModal({
                       </option>
                     )}
                 </select>
-                {/* AVISO DE DIVERGÊNCIA */}
+                {/* AVISO COR DIFERENTE */}
                 {showColorWarning && (
                   <div className="flex items-center gap-1 mt-1 text-[9px] font-bold text-amber-600 animate-pulse">
                     <AlertTriangle size={10} />
@@ -386,9 +388,9 @@ export default function ProductionConversionModal({
             </div>
           </div>
 
-          {/* DADOS EXTRAS */}
           {showFullForm && (
             <>
+              {/* BLOCO CLIENTE / PAGAMENTO (MANTIDO) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
                   <h3 className="font-bold text-blue-800 mb-3 flex items-center gap-2 text-sm uppercase">
@@ -502,6 +504,7 @@ export default function ProductionConversionModal({
                 </div>
               </div>
 
+              {/* BLOCO LOGÍSTICA (MANTIDO) */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                 <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm uppercase">
                   <Truck size={16} /> Logística de Envio
@@ -675,7 +678,6 @@ export default function ProductionConversionModal({
             {isEditing ? "Salvar Alterações" : "Confirmar Ordem"}
           </button>
         </div>
-
         <style>{`.lbl { display: block; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 4px; } .ipt { width: 100%; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s; } .ipt:focus { border-color: #a855f7; }`}</style>
       </div>
     </div>

@@ -13,6 +13,8 @@ import {
   Edit2,
   Pencil,
   ArrowRightLeft,
+  Trash2, // <--- ADICIONE ESTE
+  Archive, // <--- E ESTE
 } from "lucide-react";
 import {
   collection,
@@ -180,19 +182,29 @@ export default function OrdersTab({ findCatalogItem }) {
       orderBy("createdAt", "desc")
     );
     return onSnapshot(q, (snap) => {
-      setRawData(snap.docs.map((d) => ({ ...d.data(), id: d.id })));
+      // FILTRO: Só mostra o que NÃO está arquivado (!d.archived)
+      const data = snap.docs
+        .map((d) => ({ ...d.data(), id: d.id }))
+        .filter((d) => !d.archived);
+
+      setRawData(data);
     });
   }, []);
 
   // --- AGRUPAMENTO ---
+  // --- AGRUPAMENTO E BUSCA PROFUNDA ---
+  // --- AGRUPAMENTO E BUSCA PROFUNDA (TURBINADA) ---
   const groupedOrders = useMemo(() => {
     const groups = {};
+
+    // 1. Agrupa os itens brutos por Número de Pedido
     rawData.forEach((item) => {
       const orderNum = item.order?.number || "AVULSO";
       if (!groups[orderNum]) {
         let cName = "Cliente Balcão";
         if (orderNum !== "AVULSO" && item.order?.customer?.name)
           cName = item.order.customer.name;
+
         groups[orderNum] = {
           orderNumber: orderNum,
           customerName: cName,
@@ -209,7 +221,7 @@ export default function OrdersTab({ findCatalogItem }) {
       groups[orderNum].items.push(item);
       groups[orderNum].referenceIds.push(item.id);
 
-      // Soma dinâmica
+      // Soma dinâmica do valor
       let itemPrice = 0;
       const catalogItem = findCatalogItem ? findCatalogItem(item.sku) : null;
       if (catalogItem && catalogItem.price) {
@@ -220,33 +232,86 @@ export default function OrdersTab({ findCatalogItem }) {
       groups[orderNum].totalValue += itemPrice;
     });
 
-    // Override se houver total gravado e soma for 0
+    // Ajuste de valor legado se necessário
     Object.values(groups).forEach((group) => {
       const legacyTotal = group.items[0]?.order?.payment?.total;
       if (legacyTotal && (group.totalValue === 0 || legacyTotal !== "")) {
-        // Se tem um override explícito no banco, usa ele (para manter edições manuais)
-        // Nota: A lógica aqui pode variar conforme preferência: sempre somar ou respeitar o gravado?
-        // Vou manter: Se tem valor gravado > 0, usa ele. Se não, usa a soma.
         if (parseFloat(legacyTotal) > 0)
           group.totalValue = parseFloat(legacyTotal);
       }
     });
 
+    // Transforma em array e ordena por data
     let result = Object.values(groups).sort((a, b) => b.date - a.date);
+
+    // --- LÓGICA DE BUSCA GLOBAL ---
     if (searchTerm || statusFilter !== "all") {
       const search = normalizeText(searchTerm);
+
       result = result.filter((g) => {
-        const matchesSearch =
-          normalizeText(g.orderNumber).includes(search) ||
-          normalizeText(g.customerName).includes(search);
+        // 1. Filtro de Status Logístico
         const matchesStatus =
           statusFilter === "all" || g.logisticsStatus === statusFilter;
-        return matchesSearch && matchesStatus;
+        if (!matchesStatus) return false;
+
+        // 2. Se não tiver termo de busca, retorna true
+        if (!search) return true;
+
+        // 3. Busca no Cabeçalho (Pai)
+        if (normalizeText(g.orderNumber).includes(search)) return true;
+        if (normalizeText(g.customerName).includes(search)) return true;
+
+        // 4. Busca Profunda nos Itens (Filhos)
+        const matchDeep = g.items.some((item) => {
+          const catalogData = findCatalogItem
+            ? findCatalogItem(item.sku)
+            : null;
+
+          // Dados Básicos do Produto
+          const sku = normalizeText(item.sku || "");
+          const prodName = normalizeText(catalogData?.name || "");
+
+          // Especificações (Adicionado Finalização e Gravação)
+          const stone = normalizeText(item.specs?.stoneType || "");
+          const color = normalizeText(item.specs?.stoneColor || "");
+          const finishing = normalizeText(item.specs?.finishing || ""); // <--- NOVO
+          const engraving = normalizeText(item.specs?.engraving || ""); // <--- NOVO
+
+          // Dados de Contato
+          const phone = normalizeText(item.order?.customer?.phone || "");
+          const cpf = normalizeText(item.order?.customer?.cpf || "");
+          const email = normalizeText(item.order?.customer?.email || "");
+          const notes = normalizeText(item.order?.notes || ""); // <--- NOVO (Obs)
+
+          // Dados de Logística
+          const street = normalizeText(item.shipping?.address?.street || "");
+          const district = normalizeText(item.shipping?.address?.bairro || "");
+          const city = normalizeText(item.shipping?.address?.city || "");
+          const tracking = normalizeText(item.shipping?.tracking || "");
+
+          return (
+            sku.includes(search) ||
+            prodName.includes(search) ||
+            stone.includes(search) ||
+            color.includes(search) ||
+            finishing.includes(search) || // <--- Checa Banho
+            engraving.includes(search) || // <--- Checa Gravação
+            phone.includes(search) ||
+            cpf.includes(search) ||
+            email.includes(search) ||
+            notes.includes(search) || // <--- Checa Obs
+            street.includes(search) ||
+            district.includes(search) ||
+            city.includes(search) ||
+            tracking.includes(search)
+          );
+        });
+
+        return matchDeep;
       });
     }
     return result;
   }, [rawData, searchTerm, statusFilter, findCatalogItem]);
-
   // --- AÇÕES ---
   const toggleExpand = (orderNum) => {
     const newSet = new Set(expandedOrders);
@@ -299,7 +364,68 @@ export default function OrdersTab({ findCatalogItem }) {
       alert("Erro ao atualizar status: " + e.message);
     }
   };
+  // --- AÇÃO: EXCLUIR PEDIDO (CANCELADO) ---
+  const handleDeleteOrder = async (group) => {
+    if (
+      !window.confirm(
+        `ATENÇÃO: Isso apagará DEFINITIVAMENTE o pedido #${group.orderNumber} e seus ${group.items.length} itens.\n\nTem certeza?`
+      )
+    )
+      return;
 
+    try {
+      const batch = writeBatch(db);
+      group.referenceIds.forEach((id) => {
+        const ref = doc(
+          db,
+          "artifacts",
+          APP_COLLECTION_ID,
+          "public",
+          "data",
+          "production_orders",
+          id
+        );
+        batch.delete(ref);
+      });
+      await batch.commit();
+      alert("Pedido excluído permanentemente.");
+    } catch (e) {
+      alert("Erro ao excluir: " + e.message);
+    }
+  };
+
+  // --- AÇÃO: ARQUIVAR PEDIDO (ENVIADO) ---
+  const handleArchiveOrder = async (group) => {
+    if (
+      !window.confirm(
+        `Arquivar o pedido #${group.orderNumber}? Ele sairá desta tela.`
+      )
+    )
+      return;
+
+    try {
+      const batch = writeBatch(db);
+      group.referenceIds.forEach((id) => {
+        const ref = doc(
+          db,
+          "artifacts",
+          APP_COLLECTION_ID,
+          "public",
+          "data",
+          "production_orders",
+          id
+        );
+        batch.update(ref, {
+          archived: true,
+          archivedAt: serverTimestamp(),
+        });
+      });
+      await batch.commit();
+      // Não precisa de alert, ele vai sumir da tela automaticamente pelo filtro do useEffect
+    } catch (e) {
+      alert("Erro ao arquivar: " + e.message);
+    }
+  };
   // --- SALVAR EDIÇÃO DO PEDIDO (COMPLETO) ---
   const handleUpdateOrder = async (newData) => {
     if (!editingOrderGroup) return;
@@ -423,6 +549,8 @@ export default function OrdersTab({ findCatalogItem }) {
     if (!window.jspdf) return alert("Erro: Biblioteca PDF não carregada.");
 
     const itemsToPrint = rawData.filter((i) => selectedItems.has(i.id));
+
+    // Configuração para papel 100mm x 150mm (Padrão Zebra/Térmica)
     const pdfDoc = new window.jspdf.jsPDF({
       orientation: "portrait",
       unit: "mm",
@@ -431,63 +559,108 @@ export default function OrdersTab({ findCatalogItem }) {
 
     itemsToPrint.forEach((item, index) => {
       if (index > 0) pdfDoc.addPage();
+
+      // --- 1. PREPARAÇÃO DOS DADOS ---
+      const customerName = item.order?.customer?.name || "Cliente Balcão";
+      const orderNumber = item.order?.number || "Avulso";
+
+      // Formata data
+      let dateStr = "Data Indefinida";
+      if (item.createdAt?.toDate) {
+        dateStr = item.createdAt.toDate().toLocaleDateString("pt-BR");
+      }
+
       const catalogData = findCatalogItem ? findCatalogItem(item.sku) : null;
-      const productName = catalogData?.name || item.sku;
+      // Nome do produto: tenta catálogo > tenta nome manual > usa SKU
+      let productName = catalogData?.name || item.sku;
+      // Se tiver "Anel", adiciona o aro na descrição para ficar completo
+      if (item.specs?.size) productName += ` (Aro ${item.specs.size})`;
+
       const specs = item.specs || {};
-      const dateStr = new Date().toLocaleDateString("pt-BR", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
 
-      pdfDoc.setFontSize(10);
-      pdfDoc.setFont("helvetica", "bold");
-      let y = 10;
-      const lineHeight = 6;
-      const leftMargin = 5;
+      // --- 2. CONFIGURAÇÃO DE ESTILO ---
+      pdfDoc.setFont("helvetica", "bold"); // Define fonte padrão como Negrito (Arial Bold)
 
-      pdfDoc.text(`Data: ${dateStr}`, leftMargin, y);
-      y += lineHeight;
-      pdfDoc.text(`Pedido: ${item.order?.number || "Balcão"}`, leftMargin, y);
-      y += lineHeight;
-      pdfDoc.text(
-        `Nome: ${item.order?.customer?.name || "Cliente"}`,
-        leftMargin,
-        y
-      );
-      y += lineHeight;
-      y += 2;
-      pdfDoc.text(`Referência (SKU): ${item.sku}`, leftMargin, y);
-      y += lineHeight;
+      const margin = 6;
+      const pageWidth = 100;
+      const contentWidth = pageWidth - margin * 2;
+      let y = 12; // Posição vertical inicial
 
-      pdfDoc.text("Descrição:", leftMargin, y);
-      pdfDoc.setFont("helvetica", "normal");
-      const splitDesc = pdfDoc.splitTextToSize(productName, 90);
-      pdfDoc.text(splitDesc, leftMargin + 20, y);
-      y += splitDesc.length * lineHeight;
+      // Função auxiliar para escrever com quebra de linha automática
+      const writeLine = (text, fontSize, align = "left", extraSpacing = 0) => {
+        pdfDoc.setFontSize(fontSize);
 
-      const addField = (label, value) => {
-        if (!value || value === "ND") return;
-        pdfDoc.setFont("helvetica", "bold");
-        pdfDoc.text(`${label}:`, leftMargin, y);
-        pdfDoc.setFont("helvetica", "normal");
-        pdfDoc.text(String(value), leftMargin + 30, y);
-        y += lineHeight;
+        if (align === "center") {
+          pdfDoc.text(text, pageWidth / 2, y, { align: "center" });
+          y += fontSize * 0.45; // Avança Y baseado no tamanho da fonte
+        } else {
+          // Quebra o texto se for maior que a largura da página
+          const splitText = pdfDoc.splitTextToSize(text, contentWidth);
+          pdfDoc.text(splitText, margin, y);
+          // Calcula quanto espaço o texto ocupou (pode ter várias linhas)
+          y += splitText.length * (fontSize * 0.45);
+        }
+        y += extraSpacing; // Adiciona espaçamento extra se solicitado
       };
 
-      addField("Medidas", specs.size ? `Aro ${specs.size}` : "");
-      addField("Tipo de Pedra", specs.stoneType);
-      addField("Cor da Pedra", specs.stoneColor);
-      addField("Metal", specs.material || "Prata 925");
-      addField("Finalização", specs.finishing);
-      addField("Gravação", specs.engraving);
+      // --- 3. CONTEÚDO DO CERTIFICADO ---
 
-      pdfDoc.setFont("helvetica", "bold");
-      pdfDoc.text("Observações:", leftMargin, y);
+      // Título Centralizado (Tamanho 16)
+      writeLine("Certificado de Garantia", 16, "center", 6);
+
+      // Bloco do Pedido (Tamanho 11 - Grande para esse papel)
+      writeLine(`Emitido para: ${customerName}`, 11, "left", 1);
+      writeLine(`Pedido nº: ${orderNumber}`, 11, "left", 1);
+      writeLine(`Data do Pedido: ${dateStr}`, 11, "left", 4);
+
+      // Texto introdutório
+      writeLine(
+        "Este certificado confirma que o cliente adquiriu o seguinte produto:",
+        11,
+        "left",
+        4
+      );
+
+      // Bloco do Produto
+      writeLine(`Descrição: ${productName}`, 11, "left", 1);
+      writeLine(
+        `Tipo de Pedra: ${specs.stoneType || "Não Aplica"}`,
+        11,
+        "left",
+        1
+      );
+      writeLine(
+        `Cor da Pedra: ${specs.stoneColor || "Não Aplica"}`,
+        11,
+        "left",
+        1
+      );
+      writeLine(`Metal: ${specs.material || "Prata 925"}`, 11, "left", 1);
+      writeLine(`Finalização: ${specs.finishing || "Polido"}`, 11, "left", 4);
+
+      // Texto de Garantia
+      writeLine(
+        "Este produto possui garantia permanente, conforme os termos fornecidos no momento da compra.",
+        11,
+        "left",
+        6
+      );
+
+      // Bloco de Contato
+      writeLine("Entre em contato conosco:", 11, "left", 1);
+      writeLine("Site: www.semprejoias.com.br", 11, "left", 1);
+      writeLine("WhatsApp: 11-94833-5927", 11, "left", 1);
+      writeLine("E-mail: semprejoias@gmail.com", 11, "left", 6);
+
+      // Assinatura
+      writeLine("Atenciosamente,", 11, "left", 1);
+      writeLine("Equipe Sempre Joias", 11, "left", 0);
     });
 
+    // Salva o arquivo
     pdfDoc.save("certificados_garantia.pdf");
 
+    // Marca como impresso no banco de dados
     const batch = writeBatch(db);
     itemsToPrint.forEach((item) => {
       const ref = doc(
@@ -595,265 +768,337 @@ export default function OrdersTab({ findCatalogItem }) {
       </div>
 
       <div className="flex-1 overflow-auto p-4 custom-scrollbar">
-        <div className="space-y-3">
-          {groupedOrders.map((group) => {
-            const isExpanded = expandedOrders.has(group.orderNumber);
+        <div className="space-y-8">
+          {/* 1. ESTRUTURA DE AGRUPAMENTO POR STATUS LOGÍSTICO */}
+          {LOGISTICS_STATUS.map((statusLabel) => {
+            // Filtra quais pedidos (GRUPOS PAI) pertencem a este status
+            const ordersInStatus = groupedOrders.filter(
+              (g) => g.logisticsStatus === statusLabel
+            );
+
+            // Se não tiver nenhum pedido neste status, pula (não renderiza nada)
+            if (ordersInStatus.length === 0) return null;
 
             return (
               <div
-                key={group.orderNumber}
-                className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all hover:shadow-md"
+                key={statusLabel}
+                className="bg-slate-50/50 rounded-xl border border-slate-200/60 overflow-hidden mb-6"
               >
-                <div
-                  className={`p-4 flex items-center justify-between cursor-pointer ${
-                    isExpanded ? "bg-blue-50/50" : "bg-white"
-                  }`}
-                  onClick={() => toggleExpand(group.orderNumber)}
-                >
-                  <div className="flex items-center gap-4 flex-1">
-                    <button className="text-slate-400 hover:text-blue-600">
-                      {isExpanded ? (
-                        <ChevronDown size={20} />
-                      ) : (
-                        <ChevronRight size={20} />
-                      )}
-                    </button>
-
-                    <div className="flex flex-col w-24">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">
-                        Data
-                      </span>
-                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                        <Calendar size={12} />{" "}
-                        {group.date.toLocaleDateString("pt-BR")}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col w-32">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">
-                        Nº Pedido
-                      </span>
-                      <span className="text-sm font-bold text-blue-600">
-                        #{group.orderNumber}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col flex-1 min-w-[150px]">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">
-                        Cliente
-                      </span>
-                      <span className="text-sm font-bold text-slate-700 truncate flex items-center gap-1">
-                        <User size={12} /> {group.customerName}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col w-32 text-right">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">
-                        Valor Total
-                      </span>
-                      <span className="text-sm font-bold text-emerald-600 flex items-center justify-end gap-1">
-                        <DollarSign size={12} /> {formatMoney(group.totalValue)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div
-                    className="flex items-center gap-4 pl-4 border-l ml-4"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      onClick={() => setEditingOrderGroup(group)}
-                      className="p-2 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-100 rounded-lg transition-colors"
-                      title="Editar Dados do Pedido"
+                {/* CABEÇALHO DO STATUS (Ex: ENVIADO - 5 Pedidos) */}
+                <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <h3
+                      className={`font-bold text-xs uppercase px-2 py-1 rounded border ${getLogisticsColor(
+                        statusLabel
+                      )}`}
                     >
-                      <Pencil size={16} />
-                    </button>
-
-                    <div className="text-right">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">
-                        Envio
-                      </div>
-                      <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold truncate max-w-[100px] block text-center">
-                        {group.shippingMethod}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">
-                        Status Logístico
-                      </div>
-                      <select
-                        className={`text-xs font-bold px-2 py-1.5 rounded border outline-none cursor-pointer ${getLogisticsColor(
-                          group.logisticsStatus
-                        )}`}
-                        value={group.logisticsStatus}
-                        onChange={(e) =>
-                          handleStatusChange(group, e.target.value)
-                        }
-                      >
-                        {LOGISTICS_STATUS.map((s) => (
-                          <option
-                            key={s}
-                            value={s}
-                            className="bg-white text-slate-800"
-                          >
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                      {statusLabel}
+                    </h3>
                   </div>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {ordersInStatus.length}{" "}
+                    {ordersInStatus.length === 1 ? "Pedido" : "Pedidos"}
+                  </span>
                 </div>
 
-                {isExpanded && (
-                  <div className="bg-slate-50 border-t p-4 animate-slide-in">
-                    <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
-                      <Package size={14} /> Itens do Pedido (
-                      {group.items.length})
-                    </h4>
-                    <div className="space-y-2">
-                      {group.items.map((item, idx) => {
-                        const statusConf = PRODUCTION_STATUS_CONFIG[
-                          item.status
-                        ] || {
-                          label: item.status,
-                          color: "bg-gray-200 text-gray-700",
-                        };
-                        const isSelected = selectedItems.has(item.id);
+                {/* LISTA DE PEDIDOS DENTRO DESTE STATUS */}
+                <div className="p-3 space-y-3">
+                  {ordersInStatus.map((group) => {
+                    const isExpanded = expandedOrders.has(group.orderNumber);
 
-                        return (
-                          <div
-                            key={idx}
-                            className={`p-2 rounded border border-slate-200 flex justify-between items-center text-sm transition-all ${
-                              isSelected
-                                ? "bg-purple-50 border-purple-300"
-                                : "bg-white hover:shadow-sm"
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <input
-                                type="checkbox"
-                                className="w-4 h-4 rounded border-slate-300 cursor-pointer"
-                                checked={isSelected}
-                                onChange={() => toggleSelection(item.id)}
-                              />
+                    return (
+                      <div
+                        key={group.orderNumber}
+                        className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all hover:shadow-md"
+                      >
+                        {/* HEADER DO PEDIDO (PAI) */}
+                        <div
+                          className={`p-4 flex items-center justify-between cursor-pointer ${
+                            isExpanded ? "bg-blue-50/50" : "bg-white"
+                          }`}
+                          onClick={() => toggleExpand(group.orderNumber)}
+                        >
+                          <div className="flex items-center gap-4 flex-1">
+                            <button className="text-slate-400 hover:text-blue-600">
+                              {isExpanded ? (
+                                <ChevronDown size={20} />
+                              ) : (
+                                <ChevronRight size={20} />
+                              )}
+                            </button>
 
-                              <button
-                                onClick={() => setEditingItem(item)}
-                                className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                                title="Editar Especificações (Muda Status)"
-                              >
-                                <Edit2 size={16} />
-                              </button>
-
-                              {/* BOTÃO 2: MOVER PEDIDO (NOVO) */}
-                              <button
-                                onClick={() => setMovingItem(item)}
-                                className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded"
-                                title="Mover / Corrigir Nº Pedido"
-                              >
-                                <ArrowRightLeft size={16} />
-                              </button>
-
-                              <div className="flex gap-1">
-                                {item.fromStock && (
-                                  <div
-                                    className="bg-emerald-700 text-white text-[9px] font-bold px-1 rounded flex items-center justify-center w-4 h-4 cursor-help"
-                                    title="Estoque"
-                                  >
-                                    E
-                                  </div>
-                                )}
-                                {item.printed && (
-                                  <div
-                                    className="bg-amber-400 text-amber-900 text-[9px] font-bold px-1 rounded flex items-center justify-center w-4 h-4 cursor-help"
-                                    title="Produção Impressa"
-                                  >
-                                    I
-                                  </div>
-                                )}
-                                {item.certificatePrinted && (
-                                  <div
-                                    className="bg-blue-600 text-white text-[9px] font-bold px-1 rounded flex items-center justify-center w-4 h-4 cursor-help"
-                                    title="Certificado Impresso"
-                                  >
-                                    C
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="font-mono text-xs font-bold bg-slate-100 px-1.5 py-0.5 rounded text-blue-600">
-                                {item.sku}
-                              </div>
-
-                              <div className="text-slate-700 flex flex-wrap items-center gap-2 text-xs">
-                                {item.specs?.stoneType && (
-                                  <span className="bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-100">
-                                    {item.specs.stoneType}
-                                  </span>
-                                )}
-                                {item.specs?.stoneColor &&
-                                  item.specs.stoneColor !== "ND" && (
-                                    <span className="text-xs bg-pink-50 text-pink-700 px-1.5 py-0.5 rounded border border-pink-100 font-bold">
-                                      Cor: {item.specs.stoneColor}
-                                    </span>
-                                  )}
-                                {item.specs?.size && (
-                                  <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">
-                                    Aro {item.specs.size}
-                                  </span>
-                                )}
-                                {item.specs?.finishing &&
-                                  item.specs.finishing !== "ND" && (
-                                    <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                      {item.specs.finishing}
-                                    </span>
-                                  )}
-                                {item.specs?.engraving &&
-                                  item.specs.engraving !== "ND" && (
-                                    <span className="text-xs bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-100 italic">
-                                      Grav: "{item.specs.engraving}"
-                                    </span>
-                                  )}
-                              </div>
+                            <div className="flex flex-col w-24">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                Data
+                              </span>
+                              <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                                <Calendar size={12} />{" "}
+                                {group.date.toLocaleDateString("pt-BR")}
+                              </span>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                              <span className="text-[9px] font-bold text-slate-400 uppercase">
-                                Produção:
+                            <div className="flex flex-col w-32">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                Nº Pedido
                               </span>
+                              <span className="text-sm font-bold text-blue-600">
+                                #{group.orderNumber}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-col flex-1 min-w-[150px]">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                Cliente
+                              </span>
+                              <span className="text-sm font-bold text-slate-700 truncate flex items-center gap-1">
+                                <User size={12} /> {group.customerName}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-col w-32 text-right">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                Valor Total
+                              </span>
+                              <span className="text-sm font-bold text-emerald-600 flex items-center justify-end gap-1">
+                                <DollarSign size={12} />{" "}
+                                {formatMoney(group.totalValue)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div
+                            className="flex items-center gap-2 pl-4 border-l ml-4"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {/* BOTÃO ARQUIVAR (Só aparece se estiver ENVIADO ou ENTREGUE) */}
+                            {group.logisticsStatus === "ENVIADO" && (
+                              <button
+                                onClick={() => handleArchiveOrder(group)}
+                                className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
+                                title="Arquivar Pedido (Sai da tela)"
+                              >
+                                <Archive size={16} />
+                              </button>
+                            )}
+
+                            {/* BOTÃO EXCLUIR (Só aparece se estiver CANCELADO) */}
+                            {group.logisticsStatus === "CANCELADO" && (
+                              <button
+                                onClick={() => handleDeleteOrder(group)}
+                                className="p-2 text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                                title="Excluir Pedido Definitivamente"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => setEditingOrderGroup(group)}
+                              className="p-2 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-100 rounded-lg transition-colors"
+                              title="Editar Dados do Pedido"
+                            >
+                              <Pencil size={16} />
+                            </button>
+
+                            {/* ... (o restante dos seus campos de Envio e Status continuam aqui embaixo) ... */}
+
+                            <div className="text-right">
+                              <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                Envio
+                              </div>
+                              <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold truncate max-w-[100px] block text-center">
+                                {group.shippingMethod}
+                              </span>
+                            </div>
+
+                            {/* Mover de Status (Dropdown) */}
+                            <div className="text-right">
+                              <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                Mover Para
+                              </div>
                               <select
-                                className={`text-[10px] font-bold px-2 py-1 rounded uppercase cursor-pointer outline-none text-center ${statusConf.color}`}
-                                value={item.status}
+                                className="text-xs font-bold px-2 py-1.5 rounded border outline-none cursor-pointer bg-white text-slate-600 border-slate-300 hover:border-blue-400"
+                                value={group.logisticsStatus}
                                 onChange={(e) =>
-                                  handleItemStatusChange(
-                                    item.id,
-                                    e.target.value
-                                  )
+                                  handleStatusChange(group, e.target.value)
                                 }
                               >
-                                {Object.keys(PRODUCTION_STATUS_CONFIG).map(
-                                  (key) => (
-                                    <option
-                                      key={key}
-                                      value={key}
-                                      className="bg-white text-slate-800 font-normal"
-                                    >
-                                      {PRODUCTION_STATUS_CONFIG[key].label}
-                                    </option>
-                                  )
-                                )}
+                                {LOGISTICS_STATUS.map((s) => (
+                                  <option
+                                    key={s}
+                                    value={s}
+                                    className="bg-white text-slate-800"
+                                  >
+                                    {s}
+                                  </option>
+                                ))}
                               </select>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                        </div>
+
+                        {/* LISTA DE SUBITENS (FILHOS) */}
+                        {isExpanded && (
+                          <div className="bg-slate-50 border-t p-4 animate-slide-in">
+                            <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
+                              <Package size={14} /> Itens do Pedido (
+                              {group.items.length})
+                            </h4>
+                            <div className="space-y-2">
+                              {group.items.map((subItem, idx) => {
+                                const statusConf = PRODUCTION_STATUS_CONFIG[
+                                  subItem.status
+                                ] || {
+                                  label: subItem.status,
+                                  color: "bg-gray-200 text-gray-700",
+                                };
+                                const isSelected = selectedItems.has(
+                                  subItem.id
+                                );
+
+                                return (
+                                  <div
+                                    key={idx}
+                                    className={`p-2 rounded border border-slate-200 flex justify-between items-center text-sm transition-all ${
+                                      isSelected
+                                        ? "bg-purple-50 border-purple-300"
+                                        : "bg-white hover:shadow-sm"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <input
+                                        type="checkbox"
+                                        className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                                        checked={isSelected}
+                                        onChange={() =>
+                                          toggleSelection(subItem.id)
+                                        }
+                                      />
+
+                                      <button
+                                        onClick={() => setEditingItem(subItem)}
+                                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                                        title="Editar Especificações"
+                                      >
+                                        <Edit2 size={16} />
+                                      </button>
+
+                                      <button
+                                        onClick={() => setMovingItem(subItem)}
+                                        className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded"
+                                        title="Mover / Corrigir Nº Pedido"
+                                      >
+                                        <ArrowRightLeft size={16} />
+                                      </button>
+
+                                      <div className="flex gap-1">
+                                        {subItem.fromStock && (
+                                          <div
+                                            className="bg-emerald-700 text-white text-[9px] font-bold px-1 rounded flex items-center justify-center w-4 h-4 cursor-help"
+                                            title="Estoque"
+                                          >
+                                            E
+                                          </div>
+                                        )}
+                                        {subItem.printed && (
+                                          <div
+                                            className="bg-amber-400 text-amber-900 text-[9px] font-bold px-1 rounded flex items-center justify-center w-4 h-4 cursor-help"
+                                            title="Produção Impressa"
+                                          >
+                                            I
+                                          </div>
+                                        )}
+                                        {subItem.certificatePrinted && (
+                                          <div
+                                            className="bg-blue-600 text-white text-[9px] font-bold px-1 rounded flex items-center justify-center w-4 h-4 cursor-help"
+                                            title="Certificado Impresso"
+                                          >
+                                            C
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className="font-mono text-xs font-bold bg-slate-100 px-1.5 py-0.5 rounded text-blue-600">
+                                        {subItem.sku}
+                                      </div>
+
+                                      <div className="text-slate-700 flex flex-wrap items-center gap-2 text-xs">
+                                        {subItem.specs?.stoneType && (
+                                          <span className="bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-100">
+                                            {subItem.specs.stoneType}
+                                          </span>
+                                        )}
+                                        {subItem.specs?.stoneColor &&
+                                          subItem.specs.stoneColor !== "ND" && (
+                                            <span className="text-xs bg-pink-50 text-pink-700 px-1.5 py-0.5 rounded border border-pink-100 font-bold">
+                                              Cor: {subItem.specs.stoneColor}
+                                            </span>
+                                          )}
+                                        {subItem.specs?.size && (
+                                          <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">
+                                            Aro {subItem.specs.size}
+                                          </span>
+                                        )}
+                                        {subItem.specs?.finishing &&
+                                          subItem.specs.finishing !== "ND" && (
+                                            <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                              {subItem.specs.finishing}
+                                            </span>
+                                          )}
+                                        {subItem.specs?.engraving &&
+                                          subItem.specs.engraving !== "ND" && (
+                                            <span className="text-xs bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-100 italic">
+                                              Grav: "{subItem.specs.engraving}"
+                                            </span>
+                                          )}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[9px] font-bold text-slate-400 uppercase">
+                                        Produção:
+                                      </span>
+                                      <select
+                                        className={`text-[10px] font-bold px-2 py-1 rounded uppercase cursor-pointer outline-none text-center ${statusConf.color}`}
+                                        value={subItem.status}
+                                        onChange={(e) =>
+                                          handleItemStatusChange(
+                                            subItem.id,
+                                            e.target.value
+                                          )
+                                        }
+                                      >
+                                        {Object.keys(
+                                          PRODUCTION_STATUS_CONFIG
+                                        ).map((key) => (
+                                          <option
+                                            key={key}
+                                            value={key}
+                                            className="bg-white text-slate-800 font-normal"
+                                          >
+                                            {
+                                              PRODUCTION_STATUS_CONFIG[key]
+                                                .label
+                                            }
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}
 
+          {/* MENSAGEM SE NÃO TIVER NADA */}
           {groupedOrders.length === 0 && (
             <div className="text-center py-10 text-slate-400">
               <Package size={48} className="mx-auto mb-2 opacity-20" />

@@ -14,6 +14,8 @@ import {
   Plus,
   X,
   Save,
+  CheckCircle, // Importei para o ícone de sucesso
+  AlertTriangle, // Importei para o ícone de alerta
 } from "lucide-react";
 import {
   collection,
@@ -342,6 +344,8 @@ export default function ReservationsTab({
               <th className="px-4 py-3 w-10 text-center">
                 <CheckSquare size={14} />
               </th>
+              {/* NOVA COLUNA AQUI */}
+              <th className="px-4 py-3 text-center">Disponibilidade</th>
               <th className="px-4 py-3">Data</th>
               <th className="px-4 py-3">Produto / SKU</th>
               <th className="px-4 py-3">Cliente / Pedido</th>
@@ -354,6 +358,13 @@ export default function ReservationsTab({
             {filteredReservations.map((res) => {
               const catalog = findCatalogItem ? findCatalogItem(res.sku) : null;
               const isSelected = selectedIds.has(res.id);
+
+              // --- LÓGICA DE DISPONIBILIDADE ---
+              // Conta quantos itens "in_stock" existem para esse SKU
+              const stockCount = inventory.filter(
+                (i) => i.sku === res.sku && i.status === "in_stock"
+              ).length;
+              const isAvailable = stockCount > 0;
 
               // --- CORREÇÃO DE DATA ---
               let displayDate = "-";
@@ -387,6 +398,20 @@ export default function ReservationsTab({
                       onChange={() => toggleSelection(res.id)}
                     />
                   </td>
+
+                  {/* INDICADOR DE DISPONIBILIDADE */}
+                  <td className="px-4 py-3 text-center">
+                    {isAvailable ? (
+                      <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full text-[10px] font-bold border border-emerald-200">
+                        <CheckCircle size={10} /> {stockCount} UN
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2 py-1 rounded-full text-[10px] font-bold border border-red-200">
+                        <AlertTriangle size={10} /> FALTA
+                      </span>
+                    )}
+                  </td>
+
                   <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
                     <div className="flex items-center gap-1">
                       <Calendar size={12} /> {displayDate}

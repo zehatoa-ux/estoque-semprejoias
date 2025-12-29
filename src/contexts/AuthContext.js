@@ -59,21 +59,18 @@ export function AuthProvider({ children }) {
       const docSnap = querySnapshot.docs[0];
       const userData = { id: docSnap.id, ...docSnap.data() };
 
-      // Verificação simples de senha (ideal seria hash, mas mantendo a lógica atual)
-      // Se no banco não tiver senha (usuário legado), permite entrar (cuidado!)
-      // Se tiver, compara string direta.
+      // Verificação simples de senha
       if (userData.password && userData.password !== password) {
         return { success: false, message: "Senha incorreta." };
       }
 
       // MONTA O OBJETO DE SESSÃO LIMPO
-      // Isso garante que estamos usando os dados REAIS do banco
       const sessionUser = {
         id: userData.id,
         name: userData.name,
         username: userData.username,
-        role: userData.role || "user", // 'master' ou 'user'
-        access: userData.access || [], // Array de permissões ['stock', 'production', ...]
+        role: userData.role || "user",
+        access: userData.access || [],
       };
 
       // Salva no estado e no navegador
@@ -91,21 +88,20 @@ export function AuthProvider({ children }) {
   const logout = () => {
     setUser(null);
     localStorage.removeItem(SESSION_KEY);
-    // Opcional: recarregar a página para limpar estados globais do App.js
     window.location.reload();
   };
 
-  // --- VERIFICAÇÃO DE PERMISSÃO (CORRIGIDA) ---
+  // --- VERIFICAÇÃO DE PERMISSÃO ---
   const hasAccess = (moduleKey) => {
     if (!user) return false;
 
-    // 1. Se for MASTER, tem acesso a tudo, irrestrito.
+    // 1. Se for MASTER, tem acesso a tudo.
     if (user.role === "master") return true;
 
-    // 2. Se o array de acesso não existir, bloqueia tudo por segurança
+    // 2. Se o array de acesso não existir, bloqueia
     if (!Array.isArray(user.access)) return false;
 
-    // 3. Verifica se a chave da aba (ex: 'orders') está no array do banco
+    // 3. Verifica se a chave da aba está no array
     return user.access.includes(moduleKey);
   };
 

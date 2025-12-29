@@ -33,130 +33,12 @@ import ProductionConversionModal from "../components/modals/ProductionConversion
 import OrderEditModal from "../components/modals/OrderEditModal";
 import OrderMoveModal from "../components/modals/OrderMoveModal"; // <--- NOVO: Move item individual
 import { generateCertificatePDF } from "../utils/certificateGenerator";
-
-// --- STATUS LOGÍSTICOS ---
-const LOGISTICS_STATUS = [
-  "SEM ETIQUETA",
-  "CANCELADO",
-  "ENVIADO",
-  "REPOSTAGEM",
-  "AGUARDANDO",
-  "AGUARDANDO RETIRADA",
-  "PRONTO PARA POSTAR",
-  "GOLPE",
-  "FOTO",
-  "ML",
-  "MOTOBOY",
-  "FELIPPE",
-  "PRONTO EM ESPERA",
-];
-
-// --- STATUS DE PRODUÇÃO ---
-const PRODUCTION_STATUS_CONFIG = {
-  PEDIDO_MODIFICADO: {
-    label: "PEDIDO MODIFICADO",
-    color: "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300",
-  },
-  SOLICITACAO: {
-    label: "AGUARDANDO ANÁLISE",
-    color: "bg-slate-600 text-white border-slate-700",
-  },
-  GRAVACAO: {
-    label: "GRAVAÇÃO",
-    color: "bg-orange-400 text-white border-orange-500",
-  },
-  MODELAGEM: {
-    label: "MODELAGEM",
-    color: "bg-pink-300 text-pink-900 border-pink-400",
-  },
-  FALTA_BANCA: {
-    label: "FALHA BANCA",
-    color: "bg-red-500 text-white border-red-600",
-  },
-  IMPRIMIR: {
-    label: "IMPRIMIR",
-    color: "bg-emerald-500 text-white border-emerald-600",
-  },
-  PEDIDO_PRONTO: {
-    label: "PEDIDO PRONTO",
-    color: "bg-green-600 text-white border-green-700",
-  },
-  CANCELADO: {
-    label: "CANCELADO",
-    color: "bg-gray-700 text-gray-300 border-gray-800",
-  },
-  CURA: { label: "CURA", color: "bg-purple-600 text-white border-purple-700" },
-  INJECAO: {
-    label: "INJEÇÃO",
-    color: "bg-indigo-600 text-white border-indigo-700",
-  },
-  RESINA_FINALIZACAO: {
-    label: "RESINA/FINALIZAÇÃO",
-    color: "bg-blue-400 text-white border-blue-500",
-  },
-  VERIFICAR: {
-    label: "VERIFICAR",
-    color: "bg-pink-400 text-white border-pink-500",
-  },
-  ESTOQUE_IMPRIMINDO: {
-    label: "ESTOQUE - IMPRIMINDO",
-    color: "bg-cyan-700 text-white border-cyan-800",
-  },
-  ESTOQUE_FUNDIDO: {
-    label: "ESTOQUE - FUNDIDO",
-    color: "bg-blue-800 text-white border-blue-900",
-  },
-  IMPRIMINDO: {
-    label: "IMPRIMINDO",
-    color: "bg-orange-500 text-white border-orange-600",
-  },
-  BANHO: { label: "BANHO", color: "bg-cyan-600 text-white border-cyan-700" },
-  IR_PARA_BANCA: {
-    label: "IR PARA BANCA",
-    color: "bg-stone-600 text-white border-stone-700",
-  },
-  FUNDICAO: {
-    label: "FUNDIÇÃO",
-    color: "bg-teal-400 text-teal-900 border-teal-500",
-  },
-  POLIMENTO: {
-    label: "POLIMENTO",
-    color: "bg-yellow-600 text-white border-yellow-700",
-  },
-  ENVIADO: {
-    label: "ENVIADO",
-    color: "bg-stone-500 text-white border-stone-600",
-  },
-  QUALIDADE: { label: "Q", color: "bg-blue-700 text-white border-blue-800" },
-  BANCA: { label: "BANCA", color: "bg-lime-500 text-lime-900 border-lime-600" },
-  MANUTENCAO: {
-    label: "AJUSTE/MANUTENÇÃO",
-    color: "bg-sky-400 text-white border-sky-500",
-  },
-  FALTA_PEDRA: {
-    label: "FALTA PEDRA",
-    color: "bg-purple-400 text-purple-900 border-purple-500",
-  },
-};
-
-const getLogisticsColor = (status) => {
-  switch (status) {
-    case "ENVIADO":
-      return "bg-green-100 text-green-700 border-green-200";
-    case "CANCELADO":
-      return "bg-red-100 text-red-700 border-red-200";
-    case "GOLPE":
-      return "bg-red-600 text-white border-red-700 animate-pulse";
-    case "MOTOBOY":
-      return "bg-yellow-100 text-yellow-700 border-yellow-200";
-    case "PRONTO PARA POSTAR":
-      return "bg-blue-100 text-blue-700 border-blue-200";
-    case "SEM ETIQUETA":
-      return "bg-gray-100 text-gray-600 border-gray-300";
-    default:
-      return "bg-slate-100 text-slate-600 border-slate-200";
-  }
-};
+import { useOrderProcessing } from "../hooks/useOrderProcessing";
+import { PRODUCTION_STATUS_CONFIG } from "../config/productionStatuses";
+import {
+  LOGISTICS_STATUS_CONFIG,
+  LOGISTICS_ORDER,
+} from "../config/logisticsStatuses";
 
 export default function OrdersTab({ findCatalogItem }) {
   const [rawData, setRawData] = useState([]);
@@ -192,127 +74,13 @@ export default function OrdersTab({ findCatalogItem }) {
     });
   }, []);
 
-  // --- AGRUPAMENTO ---
-  // --- AGRUPAMENTO E BUSCA PROFUNDA ---
-  // --- AGRUPAMENTO E BUSCA PROFUNDA (TURBINADA) ---
-  const groupedOrders = useMemo(() => {
-    const groups = {};
-
-    // 1. Agrupa os itens brutos por Número de Pedido
-    rawData.forEach((item) => {
-      const orderNum = item.order?.number || "AVULSO";
-      if (!groups[orderNum]) {
-        let cName = "Cliente Balcão";
-        if (orderNum !== "AVULSO" && item.order?.customer?.name)
-          cName = item.order.customer.name;
-
-        groups[orderNum] = {
-          orderNumber: orderNum,
-          customerName: cName,
-          date: item.createdAt?.toDate ? item.createdAt.toDate() : new Date(),
-          totalValue: 0,
-          shippingMethod:
-            item.shipping?.tipoenvio || item.shipping?.method || "Retirada",
-          logisticsStatus: item.logisticsStatus || "SEM ETIQUETA",
-          items: [],
-          referenceIds: [],
-        };
-      }
-
-      groups[orderNum].items.push(item);
-      groups[orderNum].referenceIds.push(item.id);
-
-      // Soma dinâmica do valor
-      let itemPrice = 0;
-      const catalogItem = findCatalogItem ? findCatalogItem(item.sku) : null;
-      if (catalogItem && catalogItem.price) {
-        itemPrice = parseFloat(catalogItem.price);
-      } else if (item.price) {
-        itemPrice = parseFloat(item.price);
-      }
-      groups[orderNum].totalValue += itemPrice;
-    });
-
-    // Ajuste de valor legado se necessário
-    Object.values(groups).forEach((group) => {
-      const legacyTotal = group.items[0]?.order?.payment?.total;
-      if (legacyTotal && (group.totalValue === 0 || legacyTotal !== "")) {
-        if (parseFloat(legacyTotal) > 0)
-          group.totalValue = parseFloat(legacyTotal);
-      }
-    });
-
-    // Transforma em array e ordena por data
-    let result = Object.values(groups).sort((a, b) => b.date - a.date);
-
-    // --- LÓGICA DE BUSCA GLOBAL ---
-    if (searchTerm || statusFilter !== "all") {
-      const search = normalizeText(searchTerm);
-
-      result = result.filter((g) => {
-        // 1. Filtro de Status Logístico
-        const matchesStatus =
-          statusFilter === "all" || g.logisticsStatus === statusFilter;
-        if (!matchesStatus) return false;
-
-        // 2. Se não tiver termo de busca, retorna true
-        if (!search) return true;
-
-        // 3. Busca no Cabeçalho (Pai)
-        if (normalizeText(g.orderNumber).includes(search)) return true;
-        if (normalizeText(g.customerName).includes(search)) return true;
-
-        // 4. Busca Profunda nos Itens (Filhos)
-        const matchDeep = g.items.some((item) => {
-          const catalogData = findCatalogItem
-            ? findCatalogItem(item.sku)
-            : null;
-
-          // Dados Básicos do Produto
-          const sku = normalizeText(item.sku || "");
-          const prodName = normalizeText(catalogData?.name || "");
-
-          // Especificações (Adicionado Finalização e Gravação)
-          const stone = normalizeText(item.specs?.stoneType || "");
-          const color = normalizeText(item.specs?.stoneColor || "");
-          const finishing = normalizeText(item.specs?.finishing || ""); // <--- NOVO
-          const engraving = normalizeText(item.specs?.engraving || ""); // <--- NOVO
-
-          // Dados de Contato
-          const phone = normalizeText(item.order?.customer?.phone || "");
-          const cpf = normalizeText(item.order?.customer?.cpf || "");
-          const email = normalizeText(item.order?.customer?.email || "");
-          const notes = normalizeText(item.order?.notes || ""); // <--- NOVO (Obs)
-
-          // Dados de Logística
-          const street = normalizeText(item.shipping?.address?.street || "");
-          const district = normalizeText(item.shipping?.address?.bairro || "");
-          const city = normalizeText(item.shipping?.address?.city || "");
-          const tracking = normalizeText(item.shipping?.tracking || "");
-
-          return (
-            sku.includes(search) ||
-            prodName.includes(search) ||
-            stone.includes(search) ||
-            color.includes(search) ||
-            finishing.includes(search) || // <--- Checa Banho
-            engraving.includes(search) || // <--- Checa Gravação
-            phone.includes(search) ||
-            cpf.includes(search) ||
-            email.includes(search) ||
-            notes.includes(search) || // <--- Checa Obs
-            street.includes(search) ||
-            district.includes(search) ||
-            city.includes(search) ||
-            tracking.includes(search)
-          );
-        });
-
-        return matchDeep;
-      });
-    }
-    return result;
-  }, [rawData, searchTerm, statusFilter, findCatalogItem]);
+  // --- AGRUPAMENTO E BUSCA (Refatorado para Hook) ---
+  const groupedOrders = useOrderProcessing(
+    rawData,
+    searchTerm,
+    statusFilter,
+    findCatalogItem
+  );
   // --- AÇÕES ---
   const toggleExpand = (orderNum) => {
     const newSet = new Set(expandedOrders);
@@ -642,7 +410,7 @@ export default function OrdersTab({ findCatalogItem }) {
               onChange={(e) => setStatusFilter(e.target.value)}
             >
               <option value="all">Todos Status</option>
-              {LOGISTICS_STATUS.map((s) => (
+              {LOGISTICS_ORDER.map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
@@ -668,7 +436,7 @@ export default function OrdersTab({ findCatalogItem }) {
       <div className="flex-1 overflow-auto p-4 custom-scrollbar">
         <div className="space-y-8">
           {/* 1. ESTRUTURA DE AGRUPAMENTO POR STATUS LOGÍSTICO */}
-          {LOGISTICS_STATUS.map((statusLabel) => {
+          {LOGISTICS_ORDER.map((statusLabel) => {
             // Filtra quais pedidos (GRUPOS PAI) pertencem a este status
             const ordersInStatus = groupedOrders.filter(
               (g) => g.logisticsStatus === statusLabel
@@ -686,9 +454,10 @@ export default function OrdersTab({ findCatalogItem }) {
                 <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center">
                   <div className="flex items-center gap-3">
                     <h3
-                      className={`font-bold text-xs uppercase px-2 py-1 rounded border ${getLogisticsColor(
-                        statusLabel
-                      )}`}
+                      className={`font-bold text-xs uppercase px-2 py-1 rounded border ${
+                        LOGISTICS_STATUS_CONFIG[statusLabel]?.color ||
+                        "bg-gray-100"
+                      }`}
                     >
                       {statusLabel}
                     </h3>
@@ -821,7 +590,7 @@ export default function OrdersTab({ findCatalogItem }) {
                                   handleStatusChange(group, e.target.value)
                                 }
                               >
-                                {LOGISTICS_STATUS.map((s) => (
+                                {LOGISTICS_ORDER.map((s) => (
                                   <option
                                     key={s}
                                     value={s}

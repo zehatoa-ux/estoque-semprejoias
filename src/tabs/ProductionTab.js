@@ -41,165 +41,21 @@ import { db } from "../config/firebase";
 import { APP_COLLECTION_ID } from "../config/constants";
 import { normalizeText } from "../utils/formatters";
 import ProductionConversionModal from "../components/modals/ProductionConversionModal";
-
-// --- CONFIGURAÇÃO DE STATUS ---
-const STATUS_CONFIG = {
-  SOLICITACAO: {
-    label: "AGUARDANDO ANÁLISE",
-    color: "bg-slate-600 text-white border-slate-700",
-  },
-  GRAVACAO: {
-    label: "GRAVAÇÃO",
-    color: "bg-orange-400 text-white border-orange-500",
-  },
-  MODELAGEM: {
-    label: "MODELAGEM",
-    color: "bg-pink-300 text-pink-900 border-pink-400",
-  },
-  FALTA_BANCA: {
-    label: "FALHA BANCA",
-    color: "bg-red-500 text-white border-red-600",
-  },
-  IMPRIMIR: {
-    label: "IMPRIMIR",
-    color: "bg-emerald-500 text-white border-emerald-600",
-  },
-  PEDIDO_PRONTO: {
-    label: "PEDIDO PRONTO",
-    color: "bg-green-600 text-white border-green-700",
-  },
-  CANCELADO: {
-    label: "CANCELADO",
-    color: "bg-gray-700 text-gray-300 border-gray-800",
-  },
-  CURA: { label: "CURA", color: "bg-purple-600 text-white border-purple-700" },
-  INJECAO: {
-    label: "INJEÇÃO",
-    color: "bg-indigo-600 text-white border-indigo-700",
-  },
-  RESINA_FINALIZACAO: {
-    label: "RESINA/FINALIZAÇÃO",
-    color: "bg-blue-400 text-white border-blue-500",
-  },
-  VERIFICAR: {
-    label: "VERIFICAR",
-    color: "bg-pink-400 text-white border-pink-500",
-  },
-  PEDIDO_MODIFICADO: {
-    label: "PEDIDO MODIFICADO",
-    color: "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300 animate-pulse", // Cor de destaque
-  },
-
-  // --- NOVOS STATUS DE ESTOQUE ---
-  ESTOQUE_IMPRIMINDO: {
-    label: "ESTOQUE - IMPRIMINDO",
-    color: "bg-cyan-700 text-white border-cyan-800",
-  },
-  ESTOQUE_FUNDIDO: {
-    label: "ESTOQUE - FUNDIDO",
-    color: "bg-blue-800 text-white border-blue-900",
-  },
-  // ------------------------------
-
-  IMPRIMINDO: {
-    label: "IMPRIMINDO",
-    color: "bg-orange-500 text-white border-orange-600",
-  },
-  BANHO: { label: "BANHO", color: "bg-cyan-600 text-white border-cyan-700" },
-  IR_PARA_BANCA: {
-    label: "IR PARA BANCA",
-    color: "bg-stone-600 text-white border-stone-700",
-  },
-  FUNDICAO: {
-    label: "FUNDIÇÃO",
-    color: "bg-teal-400 text-teal-900 border-teal-500",
-  },
-  POLIMENTO: {
-    label: "POLIMENTO",
-    color: "bg-yellow-600 text-white border-yellow-700",
-  },
-  ENVIADO: {
-    label: "ENVIADO",
-    color: "bg-stone-500 text-white border-stone-600",
-  },
-  QUALIDADE: { label: "Q", color: "bg-blue-700 text-white border-blue-800" },
-  BANCA: { label: "BANCA", color: "bg-lime-500 text-lime-900 border-lime-600" },
-  MANUTENCAO: {
-    label: "AJUSTE/MANUTENÇÃO",
-    color: "bg-sky-400 text-white border-sky-500",
-  },
-  FALTA_PEDRA: {
-    label: "FALTA PEDRA",
-    color: "bg-purple-400 text-purple-900 border-purple-500",
-  },
-};
-
-// --- ORDEM DO KANBAN ---
-const STATUS_ORDER = [
-  "PEDIDO_MODIFICADO", // <--- Coloquei no topo para ser urgente
-  "MODELAGEM",
-  "GRAVACAO",
-  "MANUTENCAO",
-  "FALTA_BANCA",
-  "SOLICITACAO",
-  "IMPRIMIR",
-  "IMPRIMINDO",
-  "ESTOQUE_IMPRIMINDO",
-  "CURA",
-  "FUNDICAO",
-  "ESTOQUE_FUNDIDO",
-  "BANCA",
-  "POLIMENTO",
-  "RESINA_FINALIZACAO",
-  "VERIFICAR",
-  "PEDIDO_PRONTO",
-  "CANCELADO",
-];
-
-const DAYS_COLUMNS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-const getBusinessDaysDiff = (startDate) => {
-  if (!startDate) return 0;
-  const start = startDate.toDate ? startDate.toDate() : new Date(startDate);
-  const end = new Date();
-  start.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-  let count = 0;
-  let curDate = new Date(start.getTime());
-  while (curDate < end) {
-    const dayOfWeek = curDate.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) count++;
-    curDate.setDate(curDate.getDate() + 1);
-  }
-  return count;
-};
-
-const DaysBadge = ({ date }) => {
-  const days = getBusinessDaysDiff(date);
-  let colorClass = "bg-emerald-100 text-emerald-700 border-emerald-200";
-  let Icon = Clock;
-  if (days >= 5 && days < 8) {
-    colorClass = "bg-yellow-100 text-yellow-700 border-yellow-200";
-    Icon = AlertTriangle;
-  } else if (days >= 8 && days <= 9) {
-    colorClass = "bg-red-100 text-red-700 border-red-200 animate-pulse";
-    Icon = AlertTriangle;
-  } else if (days > 9) {
-    colorClass = "bg-purple-900 text-white border-purple-950";
-    Icon = AlertTriangle;
-  }
-  return (
-    <div
-      className={`flex flex-col items-center justify-center border rounded-lg px-2 py-1 min-w-[50px] ${colorClass}`}
-    >
-      <div className="flex items-center gap-1 text-[10px] uppercase font-bold">
-        <Icon size={10} />
-        <span>{days > 9 ? "+9" : days} Dias</span>
-      </div>
-      <span className="text-[9px] opacity-80 font-mono">ÚTEIS</span>
-    </div>
-  );
-};
+import { useProductionFilter } from "../hooks/useProductionFilter";
+import {
+  PRODUCTION_STATUS_CONFIG as STATUS_CONFIG,
+  KANBAN_ORDER as STATUS_ORDER,
+  DAYS_COLUMNS, //
+} from "../config/productionStatuses";
+import AgeChart from "../components/dashboard/AgeChart";
+import StatusSummary from "../components/dashboard/StatusSummary";
+import DaysBadge from "../components/production/DaysBadge";
+import { getBusinessDaysDiff } from "../utils/formatters";
+import { productionService } from "../services/productionService";
+import {
+  useProductionOrders,
+  useProductionStats,
+} from "../hooks/useProductionData";
 
 const TextModal = ({ title, content, onClose }) => {
   const copyToClipboard = () => {
@@ -247,66 +103,7 @@ const TextModal = ({ title, content, onClose }) => {
   );
 };
 
-// --- GRÁFICO DE BARRAS ---
-const AgeChart = ({ orders }) => {
-  const distribution = useMemo(() => {
-    const counts = Array(11).fill(0);
-    orders.forEach((o) => {
-      if (
-        o.status === "PEDIDO_PRONTO" ||
-        o.status === "CANCELADO" ||
-        o.status === "ENVIADO"
-      )
-        return;
-      let days = getBusinessDaysDiff(o.createdAt);
-      if (days > 10) days = 10;
-      counts[days]++;
-    });
-    return counts;
-  }, [orders]);
-
-  const maxVal = Math.max(...distribution, 1);
-
-  return (
-    <div className="flex items-end gap-1 h-16 w-full mt-2 px-1 border-b border-slate-200 pb-1">
-      {distribution.map((count, day) => {
-        let colorClass = "bg-emerald-400";
-        if (day >= 5) colorClass = "bg-yellow-400";
-        if (day >= 8) colorClass = "bg-orange-500";
-        if (day >= 10) colorClass = "bg-purple-600";
-
-        const heightPercent =
-          count > 0 ? Math.max((count / maxVal) * 100, 10) : 0;
-
-        return (
-          <div
-            key={day}
-            className="flex-1 flex flex-col justify-end group relative h-full"
-          >
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-[9px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-20 pointer-events-none">
-              <span className="font-bold">{count} pedidos</span> (
-              {day === 10 ? "10+" : day} dias)
-            </div>
-            <div className="w-full bg-slate-100 rounded-t-sm relative h-full flex items-end overflow-hidden">
-              {count > 0 && (
-                <div
-                  className={`w-full transition-all duration-500 ${colorClass}`}
-                  style={{ height: `${heightPercent}%` }}
-                ></div>
-              )}
-            </div>
-            <div className="text-[9px] text-center text-slate-400 font-bold mt-1 border-t border-transparent group-hover:border-slate-300 group-hover:text-slate-600">
-              {day === 10 ? "10+" : day}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-export default function ProductionTab({ user, findCatalogItem }) {
-  const [orders, setOrders] = useState([]);
+export default function ProductionTab({ findCatalogItem, user }) {
   const [filterText, setFilterText] = useState("");
   const [viewMode, setViewMode] = useState("list");
   const [groupBy, setGroupBy] = useState("status");
@@ -314,92 +111,17 @@ export default function ProductionTab({ user, findCatalogItem }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [textModalData, setTextModalData] = useState(null);
-  const [stats, setStats] = useState({});
 
-  useEffect(() => {
-    if (!db) return;
-    const q = query(
-      collection(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders"
-      ),
-      orderBy("createdAt", "asc")
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      setOrders(snap.docs.map((d) => ({ ...d.data(), id: d.id })));
-    });
-    return () => unsub();
-  }, []);
+  // 2. Substitua toda aquela lógica por apenas duas linhas:
+  const { orders } = useProductionOrders();
+  const stats = useProductionStats(); // (Caso você use 'stats' em algum lugar da tela)
 
-  useEffect(() => {
-    if (!db) return;
-    const statsRef = doc(
-      db,
-      "artifacts",
-      APP_COLLECTION_ID,
-      "public",
-      "data",
-      "statistics",
-      "production_monthly"
-    );
-    const unsub = onSnapshot(statsRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setStats(docSnap.data());
-      }
-    });
-    return () => unsub();
-  }, []);
-
-  // --- MINI DASHBOARD ---
-  const MiniDashboard = () => (
-    <div className="flex gap-2 overflow-x-auto pb-2 mb-2 pt-2 custom-scrollbar">
-      {STATUS_ORDER.map((st) => {
-        const count = orders.filter((o) => o.status === st).length;
-        if (count === 0 && st !== "SOLICITACAO") return null;
-        const conf = STATUS_CONFIG[st] || {};
-        const colorClass = conf.color?.split(" ")[0] || "bg-gray-200";
-        return (
-          <div
-            key={st}
-            className="flex flex-col items-center justify-center bg-white border rounded-lg px-3 py-1.5 min-w-[80px] shadow-sm shrink-0 cursor-default hover:shadow-md transition-shadow"
-          >
-            <span className="text-xl font-bold text-slate-700 leading-none">
-              {count}
-            </span>
-            <div className="flex items-center gap-1 mt-1">
-              <div className={`w-2 h-2 rounded-full ${colorClass}`}></div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase truncate max-w-[80px]">
-                {conf.label || st}
-              </span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
+  const filteredOrders = useProductionFilter(
+    orders,
+    filterText,
+    statusFilter,
+    findCatalogItem
   );
-
-  const filteredOrders = useMemo(() => {
-    return orders.filter((order) => {
-      if (statusFilter !== "all" && order.status !== statusFilter) return false;
-      if (!filterText) return true;
-      const search = normalizeText(filterText);
-      const sku = normalizeText(order.sku || "");
-      const orderNum = normalizeText(order.order?.number || "");
-      const client = normalizeText(order.order?.customer?.name || "");
-      const catalogItem = findCatalogItem ? findCatalogItem(order.sku) : null;
-      const prodName = normalizeText(catalogItem?.name || "");
-      return (
-        sku.includes(search) ||
-        orderNum.includes(search) ||
-        client.includes(search) ||
-        prodName.includes(search)
-      );
-    });
-  }, [orders, filterText, statusFilter, findCatalogItem]);
 
   const groupedOrders = useMemo(() => {
     const groups = {};
@@ -428,52 +150,19 @@ export default function ProductionTab({ user, findCatalogItem }) {
     return groups;
   }, [filteredOrders, groupBy]);
 
+  // --- 1. MOVE STATUS REFATORADO ---
   const handleMoveStatus = async (orderId, newStatus) => {
     try {
-      const docRef = doc(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders",
-        orderId
-      );
       const currentOrder = orders.find((o) => o.id === orderId);
       const currentStatus = currentOrder ? currentOrder.status : "";
 
-      await updateDoc(docRef, {
-        status: newStatus,
-        lastUpdate: serverTimestamp(),
-        updatedBy: user?.name || "Sistema",
-      });
-
-      if (newStatus === "PEDIDO_PRONTO" && currentStatus !== "PEDIDO_PRONTO") {
-        const now = new Date();
-        const monthKey = `${now.getFullYear()}_${String(
-          now.getMonth() + 1
-        ).padStart(2, "0")}`;
-        const displayKey = `${new Intl.DateTimeFormat("pt-BR", {
-          month: "short",
-        }).format(now)}/${String(now.getFullYear()).slice(-2)}`;
-        const statsRef = doc(
-          db,
-          "artifacts",
-          APP_COLLECTION_ID,
-          "public",
-          "data",
-          "statistics",
-          "production_monthly"
-        );
-        await setDoc(
-          statsRef,
-          {
-            [monthKey]: increment(1),
-            [`label_${monthKey}`]: displayKey,
-          },
-          { merge: true }
-        );
-      }
+      // Uma linha para resolver tudo!
+      await productionService.updateStatus(
+        orderId,
+        newStatus,
+        currentStatus,
+        user?.name
+      );
     } catch (error) {
       alert("Erro: " + error.message);
     }
@@ -503,45 +192,30 @@ export default function ProductionTab({ user, findCatalogItem }) {
 
   const handleEditSave = async (updatedData) => {
     try {
-      const docRef = doc(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders",
-        updatedData.id
+      await productionService.updateSpecs(
+        updatedData.id,
+        updatedData.specs,
+        user?.name
       );
-      await updateDoc(docRef, {
-        specs: updatedData.specs,
-        updatedBy: user?.name || "Sistema",
-        lastUpdate: serverTimestamp(),
-      });
       setEditingOrder(null);
     } catch (e) {
       alert("Erro: " + e.message);
     }
   };
 
+  // --- 3. DELETE REFATORADO ---
   const handleDeleteOrder = async (order) => {
     if (order.status !== "CANCELADO") return;
+
+    // Mantém a validação de segurança no UI (isso é responsabilidade da tela)
     const confirmCode = order.sku;
     const userInput = window.prompt(
       `⛔️ APAGAR ${order.sku}?\nDigite o SKU EXATO:`
     );
     if (userInput !== confirmCode) return alert("❌ Código incorreto.");
+
     try {
-      await deleteDoc(
-        doc(
-          db,
-          "artifacts",
-          APP_COLLECTION_ID,
-          "public",
-          "data",
-          "production_orders",
-          order.id
-        )
-      );
+      await productionService.deleteOrder(order.id);
       alert("✅ Item apagado.");
     } catch (e) {
       alert("Erro: " + e.message);
@@ -558,41 +232,37 @@ export default function ProductionTab({ user, findCatalogItem }) {
   const handleGeneratePrintText = async () => {
     const itemsToPrint = orders.filter((o) => selectedOrders.has(o.id));
     if (itemsToPrint.length === 0) return;
-    let content = "";
-    const batch = writeBatch(db);
-    itemsToPrint.forEach((order) => {
-      const ref = doc(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders",
-        order.id
-      );
-      batch.update(ref, { printed: true });
-      const dateSimple = order.dateStr ? order.dateStr.split(" ")[0] : "-";
-      content += "--------------------------\n";
-      content += `Data: ${dateSimple}\nPedido: ${
-        order.order?.number || "-"
-      }\nSKU: ${order.sku}\n`;
-      content += "--------------------------\n";
-      content += `Aro: ${order.specs?.size || "-"}\nPedra: ${
-        order.specs?.stoneType || "-"
-      }\nCor: ${order.specs?.stoneColor || "-"}\nBanho: ${
-        order.specs?.finishing || "-"
-      }\n`;
-      content += "--------------------------\n";
-      content += `GRAV: ${order.specs?.engraving || "-"}\nTipo: ${
-        order.specs?.jewelryType || "-"
-      }\nMat: ${order.specs?.material || "-"}\nCat: ${
-        order.specs?.category || "-"
-      }\n`;
-      content +=
-        "--------------------------\nF\n--------------------------\n\n\n";
-    });
+
     try {
-      await batch.commit();
+      // 1. Atualiza o banco (Responsabilidade do Serviço)
+      const ids = itemsToPrint.map((o) => o.id);
+      await productionService.markBatchAsPrinted(ids);
+
+      // 2. Gera o texto (Responsabilidade Visual/Formatador)
+      // DICA: O ideal seria mover essa lógica de string para src/utils/printFormatter.js
+      let content = "";
+      itemsToPrint.forEach((order) => {
+        const dateSimple = order.dateStr ? order.dateStr.split(" ")[0] : "-";
+        content += "--------------------------\n";
+        content += `Data: ${dateSimple}\nPedido: ${
+          order.order?.number || "-"
+        }\nSKU: ${order.sku}\n`;
+        content += "--------------------------\n";
+        content += `Aro: ${order.specs?.size || "-"}\nPedra: ${
+          order.specs?.stoneType || "-"
+        }\nCor: ${order.specs?.stoneColor || "-"}\nBanho: ${
+          order.specs?.finishing || "-"
+        }\n`;
+        content += "--------------------------\n";
+        content += `GRAV: ${order.specs?.engraving || "-"}\nTipo: ${
+          order.specs?.jewelryType || "-"
+        }\nMat: ${order.specs?.material || "-"}\nCat: ${
+          order.specs?.category || "-"
+        }\n`;
+        content +=
+          "--------------------------\nF\n--------------------------\n\n\n";
+      });
+
       setTextModalData({ title: "Texto para Impressão", content });
       setSelectedOrders(new Set());
     } catch (e) {
@@ -778,18 +448,14 @@ export default function ProductionTab({ user, findCatalogItem }) {
       )}
 
       <div className="bg-white px-4 pt-3 pb-2 border-b flex flex-col shadow-sm z-10 space-y-2">
-        {/* ANDAR 1: GRÁFICO */}
-        <div>
-          <h4 className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 mb-1">
-            <BarChart3 size={12} /> Urgência dos Pedidos
-          </h4>
-          <AgeChart orders={orders} />
+        {/* --- DASHBOARD SUPERIOR (Refatorado) --- */}
+        <div className="px-4 pt-4">
+          <StatusSummary orders={filteredOrders} />
+          <AgeChart orders={filteredOrders} />
         </div>
 
-        {/* ANDAR 2: MINI DASHBOARD */}
-        <div className="border-t border-slate-100 pt-2">
-          <MiniDashboard />
-        </div>
+        {/* --- RESTO DA TELA (Barra de busca, Kanban, etc) --- */}
+        {/* ... */}
 
         {/* ANDAR 3: CONTROLES ALINHADOS HORIZONTALMENTE */}
         <div className="flex flex-col xl:flex-row justify-between items-end gap-4 pt-2 border-t border-slate-100">

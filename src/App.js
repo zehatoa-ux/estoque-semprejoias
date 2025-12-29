@@ -156,7 +156,22 @@ function InventorySystem() {
   const [filterModel, setFilterModel] = useState("all");
 
   const inputRef = useRef(null);
+  // --- CORREÇÃO DE TELA BRANCA ---
+  // Se o usuário logar e não tiver acesso à aba atual (ex: stock),
+  // procura a primeira aba permitida e redireciona ele.
+  useEffect(() => {
+    if (user && !hasAccess(activeTab)) {
+      // Lista todas as chaves de abas (stock, production, etc)
+      const allTabs = Object.keys(TAB_LABELS);
+      // Encontra a primeira que retorna true no hasAccess
+      const firstAllowedTab = allTabs.find((tab) => hasAccess(tab));
 
+      if (firstAllowedTab) {
+        setActiveTab(firstAllowedTab);
+      }
+    }
+  }, [user, activeTab, hasAccess]);
+  //----Fim correcao tela branca
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm), 500);
     return () => clearTimeout(timer);

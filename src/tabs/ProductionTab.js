@@ -85,6 +85,10 @@ const STATUS_CONFIG = {
     label: "VERIFICAR",
     color: "bg-pink-400 text-white border-pink-500",
   },
+  PEDIDO_MODIFICADO: {
+    label: "PEDIDO MODIFICADO",
+    color: "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300 animate-pulse", // Cor de destaque
+  },
 
   // --- NOVOS STATUS DE ESTOQUE ---
   ESTOQUE_IMPRIMINDO: {
@@ -132,6 +136,7 @@ const STATUS_CONFIG = {
 
 // --- ORDEM DO KANBAN ---
 const STATUS_ORDER = [
+  "PEDIDO_MODIFICADO", // <--- Coloquei no topo para ser urgente
   "MODELAGEM",
   "GRAVACAO",
   "MANUTENCAO",

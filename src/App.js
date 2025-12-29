@@ -27,6 +27,7 @@ import {
   AlertCircle,
   CheckCircle,
   Factory,
+  Truck,
 } from "lucide-react";
 import {
   collection,
@@ -1162,7 +1163,7 @@ function InventorySystem() {
               />
             </div>
             <div className="flex-1">
-              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.94</h1>
+              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.95</h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>
                   Olá, <strong className="text-white">{user.name}</strong>
@@ -1210,6 +1211,7 @@ function InventorySystem() {
                 {tab === "conference" && <Barcode size={18} />}
                 {tab === "reservations" && <Bookmark size={18} />}
                 {tab === "production" && <Factory size={18} />}
+                {tab === "orders" && <Truck size={18} />}
                 {tab === "sales" && <Upload size={18} />}
                 {tab === "reports" && <BarChart2 size={18} />}
                 {tab === "config" && <Settings size={18} />}
@@ -1572,7 +1574,9 @@ function InventorySystem() {
             totalReportPages={totalReportPages}
           />
         )}
-        {activeTab === "orders" && hasAccess("production") && <OrdersTab />}
+        {activeTab === "orders" && hasAccess("production") && (
+          <OrdersTab findCatalogItem={findCatalogItem} />
+        )}
 
         {activeTab === "config" && hasAccess("config") && (
           <ConfigTab handleResetStock={handleResetStock} />

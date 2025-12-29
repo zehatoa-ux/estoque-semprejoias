@@ -12,6 +12,7 @@ import {
   Printer,
   Edit2,
   Pencil,
+  ArrowRightLeft,
 } from "lucide-react";
 import {
   collection,
@@ -28,6 +29,7 @@ import { APP_COLLECTION_ID } from "../config/constants";
 import { formatMoney, normalizeText } from "../utils/formatters";
 import ProductionConversionModal from "../components/modals/ProductionConversionModal";
 import OrderEditModal from "../components/modals/OrderEditModal";
+import OrderMoveModal from "../components/modals/OrderMoveModal"; // <--- NOVO: Move item individual
 
 // --- STATUS LOGÍSTICOS ---
 const LOGISTICS_STATUS = [
@@ -161,8 +163,9 @@ export default function OrdersTab({ findCatalogItem }) {
   const [statusFilter, setStatusFilter] = useState("all");
 
   // Modais
-  const [editingItem, setEditingItem] = useState(null);
-  const [editingOrderGroup, setEditingOrderGroup] = useState(null);
+  const [editingItem, setEditingItem] = useState(null); // Specs
+  const [movingItem, setMovingItem] = useState(null); // Move Order (NOVO)
+  const [editingOrderGroup, setEditingOrderGroup] = useState(null); // Batch Edit
 
   useEffect(() => {
     const q = query(
@@ -391,6 +394,30 @@ export default function OrdersTab({ findCatalogItem }) {
     }
   };
 
+  const handleMoveItem = async (itemId, data) => {
+    try {
+      const ref = doc(
+        db,
+        "artifacts",
+        APP_COLLECTION_ID,
+        "public",
+        "data",
+        "production_orders",
+        itemId
+      );
+      await updateDoc(ref, {
+        "order.number": data.orderNumber,
+        "order.customer.name": data.customerName,
+        status: "PEDIDO_MODIFICADO", // Opcional: marca como modificado para alertar
+        lastModified: serverTimestamp(),
+      });
+      setMovingItem(null);
+      // Não precisa de alert, o item vai "sumir" do grupo atual e aparecer no novo automaticamente
+    } catch (e) {
+      alert("Erro ao mover item: " + e.message);
+    }
+  };
+
   const handlePrintCertificates = async () => {
     if (selectedItems.size === 0) return;
     if (!window.jspdf) return alert("Erro: Biblioteca PDF não carregada.");
@@ -492,7 +519,15 @@ export default function OrdersTab({ findCatalogItem }) {
           onConfirm={handleSaveEditItem}
         />
       )}
-
+      {/* MODAL 2: MOVER ITEM (Novo - Simples) */}
+      {movingItem && (
+        <OrderMoveModal
+          isOpen={!!movingItem}
+          item={movingItem}
+          onClose={() => setMovingItem(null)}
+          onConfirm={handleMoveItem}
+        />
+      )}
       {editingOrderGroup && (
         <OrderEditModal
           isOpen={!!editingOrderGroup}
@@ -708,6 +743,15 @@ export default function OrdersTab({ findCatalogItem }) {
                                 title="Editar Especificações (Muda Status)"
                               >
                                 <Edit2 size={16} />
+                              </button>
+
+                              {/* BOTÃO 2: MOVER PEDIDO (NOVO) */}
+                              <button
+                                onClick={() => setMovingItem(item)}
+                                className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded"
+                                title="Mover / Corrigir Nº Pedido"
+                              >
+                                <ArrowRightLeft size={16} />
                               </button>
 
                               <div className="flex gap-1">

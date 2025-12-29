@@ -34,10 +34,6 @@ export const PRODUCTION_STATUS_CONFIG = {
     color: "bg-gray-700 text-gray-300 border-gray-800",
   },
   CURA: { label: "CURA", color: "bg-purple-600 text-white border-purple-700" },
-  INJECAO: {
-    label: "INJEÇÃO",
-    color: "bg-indigo-600 text-white border-indigo-700",
-  },
   RESINA_FINALIZACAO: {
     label: "RESINA/FINALIZAÇÃO",
     color: "bg-blue-400 text-white border-blue-500",

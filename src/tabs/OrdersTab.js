@@ -34,14 +34,18 @@ import OrderEditModal from "../components/modals/OrderEditModal";
 import OrderMoveModal from "../components/modals/OrderMoveModal"; // <--- NOVO: Move item individual
 import { generateCertificatePDF } from "../utils/certificateGenerator";
 import { useOrderProcessing } from "../hooks/useOrderProcessing";
-import { PRODUCTION_STATUS_CONFIG } from "../config/productionStatuses";
 import {
   LOGISTICS_STATUS_CONFIG,
   LOGISTICS_ORDER,
 } from "../config/logisticsStatuses";
+import { useOrdersData } from "../hooks/useOrdersData";
+import { ordersService } from "../services/ordersService";
+import {
+  PRODUCTION_STATUS_CONFIG,
+  KANBAN_ORDER, // <--- Importante: Vamos usar esse array para montar o dropdown
+} from "../config/productionStatuses";
 
 export default function OrdersTab({ findCatalogItem }) {
-  const [rawData, setRawData] = useState([]);
   const [expandedOrders, setExpandedOrders] = useState(new Set());
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState("");
@@ -52,27 +56,8 @@ export default function OrdersTab({ findCatalogItem }) {
   const [movingItem, setMovingItem] = useState(null); // Move Order (NOVO)
   const [editingOrderGroup, setEditingOrderGroup] = useState(null); // Batch Edit
 
-  useEffect(() => {
-    const q = query(
-      collection(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders"
-      ),
-      orderBy("createdAt", "desc")
-    );
-    return onSnapshot(q, (snap) => {
-      // FILTRO: Só mostra o que NÃO está arquivado (!d.archived)
-      const data = snap.docs
-        .map((d) => ({ ...d.data(), id: d.id }))
-        .filter((d) => !d.archived);
-
-      setRawData(data);
-    });
-  }, []);
+  // Substitui todo aquele useEffect e useState de rawData
+  const { rawData } = useOrdersData();
 
   // --- AGRUPAMENTO E BUSCA (Refatorado para Hook) ---
   const groupedOrders = useOrderProcessing(
@@ -99,38 +84,22 @@ export default function OrdersTab({ findCatalogItem }) {
   const handleStatusChange = async (group, newStatus) => {
     if (!window.confirm(`Mudar pedido ${group.orderNumber} para ${newStatus}?`))
       return;
-    group.referenceIds.forEach(async (id) => {
-      const ref = doc(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders",
-        id
+    try {
+      await ordersService.updateLogisticsStatusBatch(
+        group.referenceIds,
+        newStatus
       );
-      await updateDoc(ref, { logisticsStatus: newStatus });
-    });
+    } catch (e) {
+      alert("Erro: " + e.message);
+    }
   };
 
   const handleItemStatusChange = async (itemId, newStatus) => {
     if (!window.confirm("Confirmar alteração de status de produção?")) return;
     try {
-      const ref = doc(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders",
-        itemId
-      );
-      await updateDoc(ref, {
-        status: newStatus,
-        lastUpdate: serverTimestamp(),
-      });
+      await ordersService.updateItemStatus(itemId, newStatus);
     } catch (e) {
-      alert("Erro ao atualizar status: " + e.message);
+      alert("Erro: " + e.message);
     }
   };
   // --- AÇÃO: EXCLUIR PEDIDO (CANCELADO) ---
@@ -141,25 +110,11 @@ export default function OrdersTab({ findCatalogItem }) {
       )
     )
       return;
-
     try {
-      const batch = writeBatch(db);
-      group.referenceIds.forEach((id) => {
-        const ref = doc(
-          db,
-          "artifacts",
-          APP_COLLECTION_ID,
-          "public",
-          "data",
-          "production_orders",
-          id
-        );
-        batch.delete(ref);
-      });
-      await batch.commit();
+      await ordersService.deleteOrderBatch(group.referenceIds);
       alert("Pedido excluído permanentemente.");
     } catch (e) {
-      alert("Erro ao excluir: " + e.message);
+      alert("Erro: " + e.message);
     }
   };
 
@@ -171,28 +126,10 @@ export default function OrdersTab({ findCatalogItem }) {
       )
     )
       return;
-
     try {
-      const batch = writeBatch(db);
-      group.referenceIds.forEach((id) => {
-        const ref = doc(
-          db,
-          "artifacts",
-          APP_COLLECTION_ID,
-          "public",
-          "data",
-          "production_orders",
-          id
-        );
-        batch.update(ref, {
-          archived: true,
-          archivedAt: serverTimestamp(),
-        });
-      });
-      await batch.commit();
-      // Não precisa de alert, ele vai sumir da tela automaticamente pelo filtro do useEffect
+      await ordersService.archiveOrderBatch(group.referenceIds);
     } catch (e) {
-      alert("Erro ao arquivar: " + e.message);
+      alert("Erro: " + e.message);
     }
   };
   // --- SALVAR EDIÇÃO DO PEDIDO (COMPLETO) ---
@@ -206,110 +143,34 @@ export default function OrdersTab({ findCatalogItem }) {
       return;
 
     try {
-      const batch = writeBatch(db);
-
-      editingOrderGroup.items.forEach((item) => {
-        const ref = doc(
-          db,
-          "artifacts",
-          APP_COLLECTION_ID,
-          "public",
-          "data",
-          "production_orders",
-          item.id
-        );
-
-        // Mapeamento COMPLETO dos campos novos
-        const updateData = {
-          "order.number": newData.orderNumber,
-          "order.notes": newData.notes, // Notas gerais
-
-          // Cliente
-          "order.customer.name": newData.customerName,
-          "order.customer.cpf": newData.customerCpf,
-          "order.customer.phone": newData.customerPhone,
-          "order.customer.email": newData.customerEmail,
-
-          // Logística
-          "shipping.tipoenvio": newData.shippingMethod,
-          "shipping.price": newData.shippingPrice,
-          "shipping.tracking": newData.tracking,
-
-          // Endereço (Flat structure inside address object)
-          "shipping.address.zip": newData.zip,
-          "shipping.address.street": newData.street,
-          "shipping.address.number": newData.number,
-          "shipping.address.complemento": newData.comp,
-          "shipping.address.bairro": newData.district,
-          "shipping.address.city": newData.city,
-          "shipping.address.statecode": newData.state, // ou state
-
-          // Pagamento
-          "order.payment.method": newData.paymentMethod,
-        };
-
-        // Valor Total (Apenas se preenchido para override)
-        if (newData.totalValueOverride) {
-          updateData["order.payment.total"] = newData.totalValueOverride;
-        }
-
-        batch.update(ref, updateData);
-      });
-
-      await batch.commit();
+      await ordersService.updateOrderDetailsBatch(
+        editingOrderGroup.items,
+        newData
+      );
       setEditingOrderGroup(null);
       alert("Dados do pedido atualizados com sucesso!");
     } catch (e) {
-      alert("Erro ao atualizar pedido: " + e.message);
+      alert("Erro: " + e.message);
     }
   };
 
   const handleSaveEditItem = async (updatedData) => {
     if (!editingItem) return;
     try {
-      const ref = doc(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders",
-        editingItem.id
-      );
-      await updateDoc(ref, {
-        specs: updatedData.specs,
-        status: "PEDIDO_MODIFICADO",
-        lastModified: serverTimestamp(),
-        modifiedBy: "Logística",
-      });
+      await ordersService.updateItemSpecs(editingItem.id, updatedData.specs);
       setEditingItem(null);
       alert("Item atualizado! Status alterado para PEDIDO MODIFICADO.");
     } catch (error) {
-      alert("Erro ao salvar: " + error.message);
+      alert("Erro: " + error.message);
     }
   };
 
   const handleMoveItem = async (itemId, data) => {
     try {
-      const ref = doc(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders",
-        itemId
-      );
-      await updateDoc(ref, {
-        "order.number": data.orderNumber,
-        "order.customer.name": data.customerName,
-        status: "PEDIDO_MODIFICADO", // Opcional: marca como modificado para alertar
-        lastModified: serverTimestamp(),
-      });
+      await ordersService.moveItemToOrder(itemId, data);
       setMovingItem(null);
-      // Não precisa de alert, o item vai "sumir" do grupo atual e aparecer no novo automaticamente
     } catch (e) {
-      alert("Erro ao mover item: " + e.message);
+      alert("Erro: " + e.message);
     }
   };
 
@@ -324,25 +185,11 @@ export default function OrdersTab({ findCatalogItem }) {
     if (!success) return;
 
     // 2. Atualiza o Banco de Dados (Marca como impresso)
-    const batch = writeBatch(db);
-    itemsToPrint.forEach((item) => {
-      const ref = doc(
-        db,
-        "artifacts",
-        APP_COLLECTION_ID,
-        "public",
-        "data",
-        "production_orders",
-        item.id
-      );
-      batch.update(ref, { certificatePrinted: true });
-    });
-
     try {
-      await batch.commit();
-      setSelectedItems(new Set()); // Limpa seleção
+      await ordersService.markCertificatesPrinted(itemsToPrint); // Passa os objetos inteiros ou só IDs, ajustei o service para aceitar os objetos como vc tinha
+      setSelectedItems(new Set());
     } catch (e) {
-      console.error("Erro ao marcar como impresso:", e);
+      console.error(e);
     }
   };
 
@@ -725,6 +572,7 @@ export default function OrdersTab({ findCatalogItem }) {
                                       <span className="text-[9px] font-bold text-slate-400 uppercase">
                                         Produção:
                                       </span>
+                                      {/* 🟢 TRECHO NOVO (COPIE E COLE SUBSTITUINDO O SELECT ANTIGO) */}
                                       <select
                                         className={`text-[10px] font-bold px-2 py-1 rounded uppercase cursor-pointer outline-none text-center ${statusConf.color}`}
                                         value={subItem.status}
@@ -734,19 +582,16 @@ export default function OrdersTab({ findCatalogItem }) {
                                             e.target.value
                                           )
                                         }
+                                        onClick={(e) => e.stopPropagation()} // Importante: pra não fechar o card quando clicar
                                       >
-                                        {Object.keys(
-                                          PRODUCTION_STATUS_CONFIG
-                                        ).map((key) => (
+                                        {KANBAN_ORDER.map((key) => (
                                           <option
                                             key={key}
                                             value={key}
                                             className="bg-white text-slate-800 font-normal"
                                           >
-                                            {
-                                              PRODUCTION_STATUS_CONFIG[key]
-                                                .label
-                                            }
+                                            {PRODUCTION_STATUS_CONFIG[key]
+                                              ?.label || key}
                                           </option>
                                         ))}
                                       </select>

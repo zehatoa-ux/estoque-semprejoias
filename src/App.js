@@ -1178,7 +1178,9 @@ function InventorySystem() {
               />
             </div>
             <div className="flex-1">
-              <h1 className="text-xl font-bold">Estoque Sempre Joias v0.95</h1>
+              <h1 className="text-xl font-bold">
+                GESTAO Sempre Joias Versao 0.96
+              </h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>
                   Olá, <strong className="text-white">{user.name}</strong>

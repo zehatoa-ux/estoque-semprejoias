@@ -32,6 +32,7 @@ import { formatMoney, normalizeText } from "../utils/formatters";
 import ProductionConversionModal from "../components/modals/ProductionConversionModal";
 import OrderEditModal from "../components/modals/OrderEditModal";
 import OrderMoveModal from "../components/modals/OrderMoveModal"; // <--- NOVO: Move item individual
+import { generateCertificatePDF } from "../utils/certificateGenerator";
 
 // --- STATUS LOGÍSTICOS ---
 const LOGISTICS_STATUS = [
@@ -544,123 +545,17 @@ export default function OrdersTab({ findCatalogItem }) {
     }
   };
 
+  // --- AÇÃO: IMPRIMIR CERTIFICADOS (REFATORADA) ---
   const handlePrintCertificates = async () => {
     if (selectedItems.size === 0) return;
-    if (!window.jspdf) return alert("Erro: Biblioteca PDF não carregada.");
 
     const itemsToPrint = rawData.filter((i) => selectedItems.has(i.id));
 
-    // Configuração para papel 100mm x 150mm (Padrão Zebra/Térmica)
-    const pdfDoc = new window.jspdf.jsPDF({
-      orientation: "portrait",
-      unit: "mm",
-      format: [100, 150],
-    });
+    // 1. Chama o Gerador (Lógica separada em src/utils)
+    const success = generateCertificatePDF(itemsToPrint, findCatalogItem);
+    if (!success) return;
 
-    itemsToPrint.forEach((item, index) => {
-      if (index > 0) pdfDoc.addPage();
-
-      // --- 1. PREPARAÇÃO DOS DADOS ---
-      const customerName = item.order?.customer?.name || "Cliente Balcão";
-      const orderNumber = item.order?.number || "Avulso";
-
-      // Formata data
-      let dateStr = "Data Indefinida";
-      if (item.createdAt?.toDate) {
-        dateStr = item.createdAt.toDate().toLocaleDateString("pt-BR");
-      }
-
-      const catalogData = findCatalogItem ? findCatalogItem(item.sku) : null;
-      // Nome do produto: tenta catálogo > tenta nome manual > usa SKU
-      let productName = catalogData?.name || item.sku;
-      // Se tiver "Anel", adiciona o aro na descrição para ficar completo
-      if (item.specs?.size) productName += ` (Aro ${item.specs.size})`;
-
-      const specs = item.specs || {};
-
-      // --- 2. CONFIGURAÇÃO DE ESTILO ---
-      pdfDoc.setFont("helvetica", "bold"); // Define fonte padrão como Negrito (Arial Bold)
-
-      const margin = 6;
-      const pageWidth = 100;
-      const contentWidth = pageWidth - margin * 2;
-      let y = 12; // Posição vertical inicial
-
-      // Função auxiliar para escrever com quebra de linha automática
-      const writeLine = (text, fontSize, align = "left", extraSpacing = 0) => {
-        pdfDoc.setFontSize(fontSize);
-
-        if (align === "center") {
-          pdfDoc.text(text, pageWidth / 2, y, { align: "center" });
-          y += fontSize * 0.45; // Avança Y baseado no tamanho da fonte
-        } else {
-          // Quebra o texto se for maior que a largura da página
-          const splitText = pdfDoc.splitTextToSize(text, contentWidth);
-          pdfDoc.text(splitText, margin, y);
-          // Calcula quanto espaço o texto ocupou (pode ter várias linhas)
-          y += splitText.length * (fontSize * 0.45);
-        }
-        y += extraSpacing; // Adiciona espaçamento extra se solicitado
-      };
-
-      // --- 3. CONTEÚDO DO CERTIFICADO ---
-
-      // Título Centralizado (Tamanho 16)
-      writeLine("Certificado de Garantia", 16, "center", 6);
-
-      // Bloco do Pedido (Tamanho 11 - Grande para esse papel)
-      writeLine(`Emitido para: ${customerName}`, 11, "left", 1);
-      writeLine(`Pedido nº: ${orderNumber}`, 11, "left", 1);
-      writeLine(`Data do Pedido: ${dateStr}`, 11, "left", 4);
-
-      // Texto introdutório
-      writeLine(
-        "Este certificado confirma que o cliente adquiriu o seguinte produto:",
-        11,
-        "left",
-        4
-      );
-
-      // Bloco do Produto
-      writeLine(`Descrição: ${productName}`, 11, "left", 1);
-      writeLine(
-        `Tipo de Pedra: ${specs.stoneType || "Não Aplica"}`,
-        11,
-        "left",
-        1
-      );
-      writeLine(
-        `Cor da Pedra: ${specs.stoneColor || "Não Aplica"}`,
-        11,
-        "left",
-        1
-      );
-      writeLine(`Metal: ${specs.material || "Prata 925"}`, 11, "left", 1);
-      writeLine(`Finalização: ${specs.finishing || "Polido"}`, 11, "left", 4);
-
-      // Texto de Garantia
-      writeLine(
-        "Este produto possui garantia permanente, conforme os termos fornecidos no momento da compra.",
-        11,
-        "left",
-        6
-      );
-
-      // Bloco de Contato
-      writeLine("Entre em contato conosco:", 11, "left", 1);
-      writeLine("Site: www.semprejoias.com.br", 11, "left", 1);
-      writeLine("WhatsApp: 11-94833-5927", 11, "left", 1);
-      writeLine("E-mail: semprejoias@gmail.com", 11, "left", 6);
-
-      // Assinatura
-      writeLine("Atenciosamente,", 11, "left", 1);
-      writeLine("Equipe Sempre Joias", 11, "left", 0);
-    });
-
-    // Salva o arquivo
-    pdfDoc.save("certificados_garantia.pdf");
-
-    // Marca como impresso no banco de dados
+    // 2. Atualiza o Banco de Dados (Marca como impresso)
     const batch = writeBatch(db);
     itemsToPrint.forEach((item) => {
       const ref = doc(
@@ -674,10 +569,13 @@ export default function OrdersTab({ findCatalogItem }) {
       );
       batch.update(ref, { certificatePrinted: true });
     });
+
     try {
       await batch.commit();
-      setSelectedItems(new Set());
-    } catch (e) {}
+      setSelectedItems(new Set()); // Limpa seleção
+    } catch (e) {
+      console.error("Erro ao marcar como impresso:", e);
+    }
   };
 
   return (

@@ -20,7 +20,7 @@ export default function ProductionCard({
   onDelete,
   onMoveStatus,
 }) {
-  // --- 1. LÓGICA VISUAL CENTRALIZADA ---
+  // --- LÓGICA VISUAL ---
   const isNatural = order.specs?.stoneType === "Natural";
 
   // Verifica se a cor da pedra é diferente do padrão do catálogo
@@ -30,12 +30,6 @@ export default function ProductionCard({
     order.specs.standardColor !== "MANUAL" &&
     order.specs.standardColor.toUpperCase() !==
       order.specs.stoneColor.toUpperCase();
-
-  // Status Config (Cor e Label)
-  const statusConfig = PRODUCTION_STATUS_CONFIG[order.status] || {
-    label: order.status,
-    color: "bg-gray-100 text-gray-600",
-  };
 
   return (
     <div
@@ -100,7 +94,6 @@ export default function ProductionCard({
           <span>{order.specs?.stoneType || "-"}</span>
         </div>
 
-        {/* Lógica Divergente Aplicada Aqui */}
         <div className="flex items-center gap-1">
           <span className="text-slate-400">Cor:</span>
           <span className={`font-bold ${isDivergent ? "text-amber-600" : ""}`}>
@@ -138,7 +131,6 @@ export default function ProductionCard({
           >
             <Edit3 size={14} />
           </button>
-          {/* Botão de excluir condicional já na lógica do componente */}
           {order.status === "CANCELADO" && (
             <button
               onClick={() => onDelete(order)}

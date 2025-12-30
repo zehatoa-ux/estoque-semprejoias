@@ -58,51 +58,10 @@ import {
 } from "../hooks/useProductionData";
 import { formatProductionTicket } from "../utils/printFormatter";
 
-const TextModal = ({ title, content, onClose }) => {
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(content);
-    alert("Copiado!");
-  };
-  return (
-    <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden flex flex-col">
-        <div className="bg-slate-800 p-4 flex justify-between items-center text-white">
-          <div className="flex items-center gap-2">
-            <Copy size={20} />
-            <h3 className="font-bold">{title}</h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="hover:bg-white/20 p-1 rounded transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-        <div className="p-4 bg-slate-50">
-          <textarea
-            className="w-full h-64 p-3 font-mono text-xs border border-slate-300 rounded-lg focus:border-blue-500 outline-none resize-none bg-white text-slate-800"
-            readOnly
-            value={content}
-          />
-        </div>
-        <div className="p-4 border-t bg-white flex gap-2">
-          <button
-            onClick={copyToClipboard}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
-          >
-            <Copy size={16} /> Copiar
-          </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-slate-300 font-bold text-slate-600 hover:bg-slate-50 rounded-lg"
-          >
-            Fechar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+import { useProductionGrouping } from "../hooks/useProductionGrouping";
+// ... outros imports ...
+import ProductionCard from "../components/production/ProductionCard"; // <--- ADICIONE ISSO
+import TextModal from "../components/modals/TextModal";
 
 export default function ProductionTab({ findCatalogItem, user }) {
   const [filterText, setFilterText] = useState("");
@@ -124,32 +83,8 @@ export default function ProductionTab({ findCatalogItem, user }) {
     findCatalogItem
   );
 
-  const groupedOrders = useMemo(() => {
-    const groups = {};
-    if (groupBy === "status") {
-      STATUS_ORDER.forEach((id) => (groups[id] = []));
-      filteredOrders.forEach((order) => {
-        const st = order.status || "SOLICITACAO";
-        if (!groups[st]) groups[st] = [];
-        groups[st].push(order);
-      });
-    } else {
-      DAYS_COLUMNS.forEach((d) => (groups[d] = []));
-      filteredOrders.forEach((order) => {
-        let days = getBusinessDaysDiff(order.createdAt);
-        if (days > 10) days = 10;
-        if (groups[days]) groups[days].push(order);
-      });
-    }
-    Object.keys(groups).forEach((key) => {
-      groups[key].sort((a, b) => {
-        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
-        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
-        return dateA - dateB;
-      });
-    });
-    return groups;
-  }, [filteredOrders, groupBy]);
+  // Adicione apenas isso:// src/hooks/useProductionGrouping.js
+  const groupedOrders = useProductionGrouping(filteredOrders, groupBy);
 
   // --- 1. MOVE STATUS REFATORADO ---
   const handleMoveStatus = async (orderId, newStatus) => {
@@ -586,6 +521,7 @@ export default function ProductionTab({ findCatalogItem, user }) {
                   key={statusId}
                   className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
                 >
+                  {/* CABEÇALHO DO GRUPO (Colorido) */}
                   <div
                     className={`px-4 py-2 font-bold text-sm flex justify-between items-center ${config.color}`}
                   >
@@ -779,46 +715,75 @@ export default function ProductionTab({ findCatalogItem, user }) {
           </div>
         )}
 
+        {/* DENTRO DE viewMode === "kanban" */}
         {viewMode === "kanban" && (
-          <div className="flex gap-4 h-full w-max pb-4">
-            {(groupBy === "status" ? STATUS_ORDER : DAYS_COLUMNS).map(
+          <div className="flex gap-4 h-full w-max pb-4 px-4">
+            {(groupBy === "status" ? STATUS_ORDER : [5, 8, 10, 99]).map(
               (colId) => {
+                // 1. Pega os itens
                 const items = groupedOrders[colId] || [];
+
+                // 🛑 FILTRO DE LIMPEZA: Se for Status e estiver vazio, suma daqui!
+                // (Mantemos as colunas de Dias vazias pois elas são fixas e importantes para referência)
+                if (groupBy === "status" && items.length === 0) {
+                  return null;
+                }
+
+                // 2. Configurações Visuais
                 let label = colId;
-                let headerColor = "bg-gray-500";
-                let countColor = "bg-white/20";
+                let headerColor = "bg-slate-500";
+                let countColor = "bg-white/20 text-white";
+
                 if (groupBy === "status") {
                   const conf = STATUS_CONFIG[colId] || {};
                   label = conf.label || colId;
-                  headerColor = conf.color.split(" ")[0];
+                  headerColor = conf.color
+                    ? conf.color.split(" ")[0]
+                    : "bg-slate-500";
                 } else {
-                  label =
-                    colId === 10 ? "10+ DIAS (CRÍTICO)" : `${colId} DIAS ÚTEIS`;
-                  if (colId < 5) headerColor = "bg-emerald-500";
-                  else if (colId < 8) headerColor = "bg-yellow-500";
-                  else if (colId < 10) headerColor = "bg-orange-500";
-                  else headerColor = "bg-purple-900";
+                  if (colId === 5) {
+                    label = "ATÉ 5 DIAS ÚTEIS (NORMAL)";
+                    headerColor = "bg-emerald-600";
+                  } else if (colId === 8) {
+                    label = "5 A 8 DIAS (ATENÇÃO)";
+                    headerColor = "bg-yellow-500";
+                  } else if (colId === 10) {
+                    label = "8 A 10 DIAS (URGENTE)";
+                    headerColor = "bg-orange-500";
+                  } else {
+                    label = "+10 DIAS (CRÍTICO)";
+                    headerColor = "bg-purple-900";
+                  }
                 }
+
                 return (
                   <div
                     key={colId}
-                    className="w-72 flex flex-col h-full rounded-xl bg-slate-200/50 border border-slate-300/50"
+                    className="w-80 flex flex-col h-full rounded-xl bg-slate-100 border border-slate-200 shrink-0"
                   >
+                    {/* ... (O resto do cabeçalho e lista continua igual) ... */}
                     <div
-                      className={`p-3 rounded-t-xl border-b flex justify-between items-center text-white shadow-sm ${headerColor}`}
+                      className={`p-3 rounded-t-xl border-b flex justify-between items-center text-white shadow-sm font-bold text-xs uppercase ${headerColor}`}
                     >
-                      <span className="font-bold text-xs uppercase">
-                        {label}
-                      </span>
+                      <span className="truncate">{label}</span>
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${countColor}`}
+                        className={`px-2 py-0.5 rounded-full text-[10px] ${countColor}`}
                       >
                         {items.length}
                       </span>
                     </div>
+
                     <div className="flex-1 overflow-y-auto p-2 space-y-3 custom-scrollbar">
                       {items.map((order) => (
-                        <OrderCard key={order.id} order={order} />
+                        <ProductionCard
+                          key={order.id}
+                          order={order}
+                          isSelected={selectedOrders.has(order.id)}
+                          onToggleSelect={toggleSelect}
+                          onEdit={setEditingOrder}
+                          onDelete={handleDeleteOrder}
+                          onMoveStatus={handleMoveStatus}
+                        />
                       ))}
                     </div>
                   </div>

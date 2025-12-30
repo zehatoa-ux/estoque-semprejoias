@@ -1,3 +1,13 @@
+//agrupa pedidos
+
+//calcula valores
+
+//aplica regra antiga
+
+//decide como buscar
+
+//normaliza dados
+
 import { useMemo } from "react";
 import { normalizeText } from "../utils/formatters";
 

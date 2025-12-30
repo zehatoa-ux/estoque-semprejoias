@@ -62,6 +62,7 @@ import { useProductionGrouping } from "../hooks/useProductionGrouping";
 // ... outros imports ...
 import ProductionCard from "../components/production/ProductionCard"; // <--- ADICIONE ISSO
 import TextModal from "../components/modals/TextModal";
+import ProductionListView from "../components/production/ProductionListView";
 
 export default function ProductionTab({ findCatalogItem, user }) {
   const [filterText, setFilterText] = useState("");
@@ -508,211 +509,15 @@ export default function ProductionTab({ findCatalogItem, user }) {
 
       <div className="flex-1 overflow-auto p-4 custom-scrollbar">
         {viewMode === "list" && (
-          <div className="space-y-6 max-w-6xl mx-auto">
-            {STATUS_ORDER.map((statusId) => {
-              const items = groupedOrders[statusId] || [];
-              if (items.length === 0) return null;
-              const config = STATUS_CONFIG[statusId] || {
-                label: statusId,
-                color: "bg-gray-500 text-white",
-              };
-              return (
-                <div
-                  key={statusId}
-                  className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
-                >
-                  {/* CABEÇALHO DO GRUPO (Colorido) */}
-                  <div
-                    className={`px-4 py-2 font-bold text-sm flex justify-between items-center ${config.color}`}
-                  >
-                    <span>
-                      {config.label} ({items.length})
-                    </span>
-                  </div>
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold border-b">
-                      <tr>
-                        <th className="px-4 py-2 w-10 text-center">
-                          <CheckSquare size={14} />
-                        </th>
-                        <th className="px-4 py-2 w-20 text-center">Prazo</th>
-                        <th className="px-4 py-2">Item</th>
-                        <th className="px-4 py-2 w-1/3">Especificações</th>
-                        <th className="px-4 py-2">Cliente / Pagamento</th>
-                        <th className="px-4 py-2 text-center">Status</th>
-                        <th className="px-4 py-2 text-center">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {items.map((order) => {
-                        const catalog = findCatalogItem
-                          ? findCatalogItem(order.sku)
-                          : null;
-                        const alert = getSpecsAlert(order);
-                        const isDivergent = alert?.type === "divergent";
-                        return (
-                          <tr
-                            key={order.id}
-                            className={`hover:bg-slate-50 ${
-                              selectedOrders.has(order.id) ? "bg-purple-50" : ""
-                            }`}
-                          >
-                            <td className="px-4 py-3 text-center">
-                              <input
-                                type="checkbox"
-                                className="w-4 h-4 rounded border-slate-300 cursor-pointer"
-                                checked={selectedOrders.has(order.id)}
-                                onChange={() => toggleSelect(order.id)}
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <DaysBadge date={order.createdAt} />
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                {order.fromStock && !order.isPE && (
-                                  <div
-                                    className="bg-emerald-700 text-white text-[10px] font-bold px-1.5 py-0.5 rounded cursor-help"
-                                    title="Item retirado do estoque"
-                                  >
-                                    E
-                                  </div>
-                                )}
-                                {order.isPE && (
-                                  <div
-                                    className="bg-orange-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 cursor-help"
-                                    title="Produção de Estoque"
-                                  >
-                                    <Layers size={8} /> PE
-                                  </div>
-                                )}
-                                {order.printed && (
-                                  <div
-                                    className="bg-amber-400 text-amber-900 text-[10px] font-bold px-1.5 py-0.5 rounded cursor-help"
-                                    title="Impresso oficina"
-                                  >
-                                    I
-                                  </div>
-                                )}
-                                <div>
-                                  <div className="font-bold text-blue-600 text-xs">
-                                    {order.sku}
-                                  </div>
-                                  <div className="text-xs text-slate-600 truncate max-w-[150px]">
-                                    {catalog?.name || "Carregando..."}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-2 items-center text-[10px]">
-                                {order.specs?.size && (
-                                  <span className="bg-slate-100 px-1.5 py-0.5 rounded font-bold border border-slate-200">
-                                    Aro: {order.specs.size}
-                                  </span>
-                                )}
-                                {order.specs?.stoneType &&
-                                  order.specs.stoneType !== "ND" && (
-                                    <span className="bg-yellow-50 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-100 font-bold">
-                                      {order.specs.stoneType}
-                                    </span>
-                                  )}
-                                {order.specs?.stoneColor &&
-                                  order.specs.stoneColor !== "ND" && (
-                                    <span
-                                      className={`px-1.5 py-0.5 rounded border font-bold flex items-center gap-1 ${
-                                        isDivergent
-                                          ? "bg-amber-50 text-amber-700 border-amber-200"
-                                          : "bg-slate-100 border-slate-200"
-                                      }`}
-                                    >
-                                      Cor: {order.specs.stoneColor}
-                                      {isDivergent && (
-                                        <AlertTriangle size={10} />
-                                      )}
-                                    </span>
-                                  )}
-
-                                {/* MUDANÇA AQUI: Label de Finalização */}
-                                {order.specs?.finishing &&
-                                  order.specs.finishing !== "ND" && (
-                                    <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                      Finalização: {order.specs.finishing}
-                                    </span>
-                                  )}
-
-                                {order.specs?.engraving &&
-                                  order.specs.engraving !== "ND" && (
-                                    <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-100 italic">
-                                      "{order.specs.engraving}"
-                                    </span>
-                                  )}
-                                {alert?.type === "natural" && (
-                                  <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200 font-bold flex items-center gap-1">
-                                    <ShieldCheck size={10} /> Natural
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-xs">
-                              <div className="font-bold text-slate-700">
-                                {order.order?.customer?.name || "Balcão"}
-                              </div>
-                              <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                                <Calendar size={10} />{" "}
-                                {order.dateStr?.split(" ")[0]}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <div className="relative inline-block w-40">
-                                <select
-                                  className={`w-full text-[10px] font-bold uppercase p-1.5 rounded appearance-none text-center cursor-pointer outline-none border-2 border-white shadow-sm transition-colors ${
-                                    STATUS_CONFIG[order.status]?.color ||
-                                    "bg-gray-200 text-gray-700"
-                                  }`}
-                                  value={order.status}
-                                  onChange={(e) =>
-                                    handleMoveStatus(order.id, e.target.value)
-                                  }
-                                >
-                                  {STATUS_ORDER.map((s) => (
-                                    <option
-                                      key={s}
-                                      value={s}
-                                      className="bg-white text-slate-800"
-                                    >
-                                      {STATUS_CONFIG[s]?.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-center flex justify-center gap-2">
-                              <button
-                                onClick={() => setEditingOrder(order)}
-                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                              >
-                                <Edit3 size={16} />
-                              </button>
-                              {order.status === "CANCELADO" && (
-                                <button
-                                  onClick={() => handleDeleteOrder(order)}
-                                  className="p-1.5 text-red-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                  title="Apagar"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })}
-          </div>
+          <ProductionListView
+            groupedOrders={groupedOrders}
+            selectedOrders={selectedOrders}
+            toggleSelect={toggleSelect}
+            setEditingOrder={setEditingOrder}
+            handleDeleteOrder={handleDeleteOrder}
+            handleMoveStatus={handleMoveStatus}
+            findCatalogItem={findCatalogItem}
+          />
         )}
 
         {/* DENTRO DE viewMode === "kanban" */}

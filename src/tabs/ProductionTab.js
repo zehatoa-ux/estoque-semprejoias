@@ -139,7 +139,19 @@ export default function ProductionTab({ findCatalogItem, user }) {
       alert("Erro: " + e.message);
     }
   };
-
+  const handleTransitToggle = async (order, direction) => {
+    try {
+      // Aqui você pode trocar "UsuarioLogado" pelo nome real do usuário se tiver no contexto
+      await productionService.toggleTransit(
+        order.id,
+        direction,
+        "UsuarioLogado"
+      );
+    } catch (error) {
+      console.error("Erro no trânsito:", error);
+      alert("Erro ao mudar status de trânsito.");
+    }
+  };
   // --- 3. DELETE REFATORADO ---
   const handleDeleteOrder = async (order) => {
     if (order.status !== "CANCELADO") return;
@@ -517,6 +529,7 @@ export default function ProductionTab({ findCatalogItem, user }) {
             handleDeleteOrder={handleDeleteOrder}
             handleMoveStatus={handleMoveStatus}
             findCatalogItem={findCatalogItem}
+            onToggleTransit={handleTransitToggle}
           />
         )}
 
@@ -588,6 +601,7 @@ export default function ProductionTab({ findCatalogItem, user }) {
                           onEdit={setEditingOrder}
                           onDelete={handleDeleteOrder}
                           onMoveStatus={handleMoveStatus}
+                          onToggleTransit={handleTransitToggle}
                         />
                       ))}
                     </div>

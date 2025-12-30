@@ -14,6 +14,7 @@ import {
   PRODUCTION_STATUS_CONFIG,
   KANBAN_ORDER,
 } from "../../config/productionStatuses";
+import TransitToggle from "./TransitToggle";
 
 export default function ProductionListView({
   groupedOrders,
@@ -23,6 +24,7 @@ export default function ProductionListView({
   handleDeleteOrder,
   handleMoveStatus,
   findCatalogItem,
+  onToggleTransit,
 }) {
   // 👇 CORREÇÃO AQUI: Usando KANBAN_ORDER
   return (
@@ -198,13 +200,24 @@ export default function ProductionListView({
                         </select>
                       </td>
 
-                      <td className="px-4 py-3 text-center flex justify-center gap-2">
+                      {/* 7. Ações */}
+                      <td className="px-4 py-3 text-center flex justify-center gap-2 items-center">
+                        {/* 👇 O BOTÃO ENTRA AQUI 👇 */}
+                        <TransitToggle
+                          order={order}
+                          onToggle={onToggleTransit}
+                        />
+
+                        {/* Uma barrinha separadora visual (opcional) */}
+                        <div className="w-[1px] h-4 bg-slate-200 mx-1"></div>
+
                         <button
                           onClick={() => setEditingOrder(order)}
                           className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
                         >
                           <Edit3 size={16} />
                         </button>
+
                         {order.status === "CANCELADO" && (
                           <button
                             onClick={() => handleDeleteOrder(order)}

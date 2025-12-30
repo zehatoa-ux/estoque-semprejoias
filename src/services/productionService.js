@@ -104,4 +104,18 @@ export const productionService = {
 
     await batch.commit();
   },
+
+  // --- ALTERNAR TRÂNSITO (SUBINDO/DESCENDO) ---
+  async toggleTransit(orderId, direction, userName) {
+    // Usa o seu helper existente para pegar a referência certa!
+    const orderRef = getOrderRef(orderId);
+
+    await updateDoc(orderRef, {
+      transit_status: direction, // 'subindo', 'descendo' ou null
+      transit_updated_at: serverTimestamp(),
+      transit_updated_by: userName || "Sistema",
+      // Opcional: Atualiza o lastUpdate geral também para sabermos que houve mexida
+      lastUpdate: serverTimestamp(),
+    });
+  },
 };

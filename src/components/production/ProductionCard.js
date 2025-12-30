@@ -11,6 +11,7 @@ import {
   PRODUCTION_STATUS_CONFIG,
   KANBAN_ORDER,
 } from "../../config/productionStatuses";
+import TransitToggle from "./TransitToggle";
 
 export default function ProductionCard({
   order,
@@ -19,6 +20,7 @@ export default function ProductionCard({
   onEdit,
   onDelete,
   onMoveStatus,
+  onToggleTransit,
 }) {
   // --- LÓGICA VISUAL ---
   const isNatural = order.specs?.stoneType === "Natural";
@@ -131,6 +133,7 @@ export default function ProductionCard({
           >
             <Edit3 size={14} />
           </button>
+          <TransitToggle order={order} onToggle={onToggleTransit} />
           {order.status === "CANCELADO" && (
             <button
               onClick={() => onDelete(order)}

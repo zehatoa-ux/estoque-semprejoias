@@ -126,9 +126,19 @@ export const ordersService = {
   // Substitui Linha 292
   async moveItemToOrder(itemId, targetOrderData) {
     const ref = getOrderRef(itemId);
+
+    // 🛡️ PROTEÇÃO: Garante que nunca seja undefined
+    // Tenta ler .orderNumber, se não tiver tenta .number, se não tiver usa "AVULSO"
+    const safeOrderNumber =
+      targetOrderData.orderNumber || targetOrderData.number || "AVULSO";
+
+    // Tenta ler .customerName, se não tiver tenta .name, se não tiver usa "Cliente Balcão"
+    const safeCustomerName =
+      targetOrderData.customerName || targetOrderData.name || "Cliente Balcão";
+
     await updateDoc(ref, {
-      "order.number": targetOrderData.orderNumber,
-      "order.customer.name": targetOrderData.customerName,
+      "order.number": safeOrderNumber,
+      "order.customer.name": safeCustomerName,
       status: "PEDIDO_MODIFICADO",
       lastModified: serverTimestamp(),
     });

@@ -56,6 +56,7 @@ import {
   useProductionOrders,
   useProductionStats,
 } from "../hooks/useProductionData";
+import { formatProductionTicket } from "../utils/printFormatter";
 
 const TextModal = ({ title, content, onClose }) => {
   const copyToClipboard = () => {
@@ -230,43 +231,23 @@ export default function ProductionTab({ findCatalogItem, user }) {
   };
 
   const handleGeneratePrintText = async () => {
+    // 1. Filtra os itens selecionados
     const itemsToPrint = orders.filter((o) => selectedOrders.has(o.id));
     if (itemsToPrint.length === 0) return;
 
     try {
-      // 1. Atualiza o banco (Responsabilidade do Serviço)
+      // 2. Atualiza o banco (Serviço) - Marca como "Imprimindo"
       const ids = itemsToPrint.map((o) => o.id);
       await productionService.markBatchAsPrinted(ids);
 
-      // 2. Gera o texto (Responsabilidade Visual/Formatador)
-      // DICA: O ideal seria mover essa lógica de string para src/utils/printFormatter.js
-      let content = "";
-      itemsToPrint.forEach((order) => {
-        const dateSimple = order.dateStr ? order.dateStr.split(" ")[0] : "-";
-        content += "--------------------------\n";
-        content += `Data: ${dateSimple}\nPedido: ${
-          order.order?.number || "-"
-        }\nSKU: ${order.sku}\n`;
-        content += "--------------------------\n";
-        content += `Aro: ${order.specs?.size || "-"}\nPedra: ${
-          order.specs?.stoneType || "-"
-        }\nCor: ${order.specs?.stoneColor || "-"}\nBanho: ${
-          order.specs?.finishing || "-"
-        }\n`;
-        content += "--------------------------\n";
-        content += `GRAV: ${order.specs?.engraving || "-"}\nTipo: ${
-          order.specs?.jewelryType || "-"
-        }\nMat: ${order.specs?.material || "-"}\nCat: ${
-          order.specs?.category || "-"
-        }\n`;
-        content +=
-          "--------------------------\nF\n--------------------------\n\n\n";
-      });
+      // 3. Gera o texto (Formatador Externo) -> AQUI ESTÁ A MÁGICA ✨
+      const content = formatProductionTicket(itemsToPrint);
 
+      // 4. Abre o Modal com o texto pronto
       setTextModalData({ title: "Texto para Impressão", content });
-      setSelectedOrders(new Set());
+      setSelectedOrders(new Set()); // Limpa seleção
     } catch (e) {
-      alert("Erro: " + e.message);
+      alert("Erro ao gerar impressão: " + e.message);
     }
   };
 

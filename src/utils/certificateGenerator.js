@@ -48,11 +48,11 @@ export const generateCertificatePDF = (itemsToPrint, findCatalogItem) => {
 
       if (align === "center") {
         pdfDoc.text(text, pageWidth / 2, y, { align: "center" });
-        y += fontSize * 0.45;
+        y += fontSize * 0.35;
       } else {
         const splitText = pdfDoc.splitTextToSize(text, contentWidth);
         pdfDoc.text(splitText, margin, y);
-        y += splitText.length * (fontSize * 0.45);
+        y += splitText.length * (fontSize * 0.35);
       }
       y += extraSpacing;
     };

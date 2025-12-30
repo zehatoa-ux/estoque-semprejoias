@@ -39,17 +39,24 @@ import {
   LOGISTICS_ORDER,
 } from "../config/logisticsStatuses";
 import { useOrdersData } from "../hooks/useOrdersData";
-import { ordersService } from "../services/ordersService";
+import { useOrderActions } from "../hooks/useOrderActions";
 import {
   PRODUCTION_STATUS_CONFIG,
   KANBAN_ORDER, // <--- Importante: Vamos usar esse array para montar o dropdown
 } from "../config/productionStatuses";
+import {
+  processAndGroupOrders,
+  filterOrders,
+  canArchiveOrder, // <--- Novo
+  canDeleteOrder, // <--- Novo
+} from "../utils/logisticsLogic";
 
 export default function OrdersTab({ findCatalogItem }) {
   const [expandedOrders, setExpandedOrders] = useState(new Set());
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const actions = useOrderActions();
 
   // Modais
   const [editingItem, setEditingItem] = useState(null); // Specs
@@ -81,115 +88,89 @@ export default function OrdersTab({ findCatalogItem }) {
     setSelectedItems(newSet);
   };
 
-  const handleStatusChange = async (group, newStatus) => {
-    if (!window.confirm(`Mudar pedido ${group.orderNumber} para ${newStatus}?`))
-      return;
-    try {
-      await ordersService.updateLogisticsStatusBatch(
-        group.referenceIds,
-        newStatus
+  // --- WRAPPER: MOVER ITEM (Versão Corrigida para o seu Modal) ---
+  const handleMoveItem = async (itemIdFromModal, formData) => {
+    // ATENÇÃO: O modal manda (id, data). Precisamos do segundo argumento 'formData'.
+
+    if (!formData) return; // Segurança
+
+    // 1. Captura o que veio do Modal (O que você digitou)
+    // Como vi no seu código do Modal, os campos são exatamente: orderNumber e customerName
+    const inputNumber = formData.orderNumber;
+    const inputName = formData.customerName;
+
+    // 2. Lógica de Prioridade para o Nome:
+    let finalName = inputName;
+
+    // Só se você DEIXOU O NOME EM BRANCO é que tentamos "adivinhar" pela lista
+    if (!finalName && inputNumber) {
+      const existingOrder = groupedOrders.find(
+        (g) => String(g.orderNumber) === String(inputNumber)
       );
-    } catch (e) {
-      alert("Erro: " + e.message);
+      if (existingOrder) {
+        finalName = existingOrder.customerName;
+      }
     }
-  };
 
-  const handleItemStatusChange = async (itemId, newStatus) => {
-    if (!window.confirm("Confirmar alteração de status de produção?")) return;
-    try {
-      await ordersService.updateItemStatus(itemId, newStatus);
-    } catch (e) {
-      alert("Erro: " + e.message);
-    }
-  };
-  // --- AÇÃO: EXCLUIR PEDIDO (CANCELADO) ---
-  const handleDeleteOrder = async (group) => {
-    if (
-      !window.confirm(
-        `ATENÇÃO: Isso apagará DEFINITIVAMENTE o pedido #${group.orderNumber} e seus ${group.items.length} itens.\n\nTem certeza?`
-      )
-    )
-      return;
-    try {
-      await ordersService.deleteOrderBatch(group.referenceIds);
-      alert("Pedido excluído permanentemente.");
-    } catch (e) {
-      alert("Erro: " + e.message);
-    }
-  };
+    // 3. Monta o objeto final
+    const finalData = {
+      orderNumber: inputNumber || "AVULSO",
+      customerName: finalName || "Cliente Balcão",
+    };
 
-  // --- AÇÃO: ARQUIVAR PEDIDO (ENVIADO) ---
-  const handleArchiveOrder = async (group) => {
-    if (
-      !window.confirm(
-        `Arquivar o pedido #${group.orderNumber}? Ele sairá desta tela.`
-      )
-    )
-      return;
-    try {
-      await ordersService.archiveOrderBatch(group.referenceIds);
-    } catch (e) {
-      alert("Erro: " + e.message);
+    console.log("Movendo item:", itemIdFromModal, "para:", finalData);
+
+    // Usa o ID que veio do modal (ou do state movingItem.id, tanto faz, são iguais)
+    const success = await actions.moveItem(itemIdFromModal, finalData);
+
+    if (success) {
+      setMovingItem(null);
     }
   };
-  // --- SALVAR EDIÇÃO DO PEDIDO (COMPLETO) ---
+  // --- WRAPPER: EDITAR PEDIDO (EDITZÃO) ---
   const handleUpdateOrder = async (newData) => {
     if (!editingOrderGroup) return;
-    if (
-      !window.confirm(
-        `Atualizar dados de ${editingOrderGroup.items.length} itens?`
-      )
-    )
-      return;
 
-    try {
-      await ordersService.updateOrderDetailsBatch(
-        editingOrderGroup.items,
-        newData
-      );
-      setEditingOrderGroup(null);
-      alert("Dados do pedido atualizados com sucesso!");
-    } catch (e) {
-      alert("Erro: " + e.message);
+    // A action precisa da lista de itens para saber quem atualizar
+    const success = await actions.saveOrderDetails(
+      editingOrderGroup.items,
+      newData
+    );
+
+    if (success) {
+      setEditingOrderGroup(null); // Fecha o modal se deu certo
     }
   };
+
+  // --- SALVAR EDIÇÃO DO PEDIDO (COMPLETO) ---
 
   const handleSaveEditItem = async (updatedData) => {
-    if (!editingItem) return;
-    try {
-      await ordersService.updateItemSpecs(editingItem.id, updatedData.specs);
-      setEditingItem(null);
-      alert("Item atualizado! Status alterado para PEDIDO MODIFICADO.");
-    } catch (error) {
-      alert("Erro: " + error.message);
-    }
-  };
-
-  const handleMoveItem = async (itemId, data) => {
-    try {
-      await ordersService.moveItemToOrder(itemId, data);
-      setMovingItem(null);
-    } catch (e) {
-      alert("Erro: " + e.message);
+    const success = await actions.saveItemSpecs(editingItem, updatedData);
+    if (success) {
+      setEditingItem(null); // Fecha o modal
     }
   };
 
   // --- AÇÃO: IMPRIMIR CERTIFICADOS (REFATORADA) ---
   const handlePrintCertificates = async () => {
-    if (selectedItems.size === 0) return;
+    const itemsToPrint = Array.from(selectedItems)
+      .map(
+        (id) =>
+          rawData.find((i) => i.id === id) ||
+          groupedOrders.flatMap((g) => g.items).find((i) => i.id === id)
+      )
+      .filter(Boolean);
 
-    const itemsToPrint = rawData.filter((i) => selectedItems.has(i.id));
+    if (itemsToPrint.length === 0)
+      return alert("Selecione itens para imprimir.");
 
-    // 1. Chama o Gerador (Lógica separada em src/utils)
-    const success = generateCertificatePDF(itemsToPrint, findCatalogItem);
-    if (!success) return;
+    // 1. Gera o PDF (Responsabilidade Visual/Utils)
+    const successPDF = generateCertificatePDF(itemsToPrint, findCatalogItem);
 
-    // 2. Atualiza o Banco de Dados (Marca como impresso)
-    try {
-      await ordersService.markCertificatesPrinted(itemsToPrint); // Passa os objetos inteiros ou só IDs, ajustei o service para aceitar os objetos como vc tinha
-      setSelectedItems(new Set());
-    } catch (e) {
-      console.error(e);
+    if (successPDF) {
+      // 2. Atualiza o Banco (Responsabilidade da Action)
+      await actions.markAsPrinted(itemsToPrint);
+      setSelectedItems(new Set()); // Limpa seleção
     }
   };
 
@@ -385,22 +366,22 @@ export default function OrdersTab({ findCatalogItem }) {
                             onClick={(e) => e.stopPropagation()}
                           >
                             {/* BOTÃO ARQUIVAR (Só aparece se estiver ENVIADO ou ENTREGUE) */}
-                            {group.logisticsStatus === "ENVIADO" && (
+                            {canArchiveOrder(group) && (
                               <button
-                                onClick={() => handleArchiveOrder(group)}
-                                className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
-                                title="Arquivar Pedido (Sai da tela)"
+                                onClick={() => actions.archiveOrder(group)}
+                                className="text-slate-400 hover:text-blue-600 transition-colors"
+                                title="Arquivar Pedido"
                               >
                                 <Archive size={16} />
                               </button>
                             )}
 
                             {/* BOTÃO EXCLUIR (Só aparece se estiver CANCELADO) */}
-                            {group.logisticsStatus === "CANCELADO" && (
+                            {canDeleteOrder(group) && (
                               <button
-                                onClick={() => handleDeleteOrder(group)}
-                                className="p-2 text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-                                title="Excluir Pedido Definitivamente"
+                                onClick={() => actions.deleteOrder(group)}
+                                className="text-slate-400 hover:text-red-600 transition-colors"
+                                title="Excluir Pedido"
                               >
                                 <Trash2 size={16} />
                               </button>
@@ -434,7 +415,10 @@ export default function OrdersTab({ findCatalogItem }) {
                                 className="text-xs font-bold px-2 py-1.5 rounded border outline-none cursor-pointer bg-white text-slate-600 border-slate-300 hover:border-blue-400"
                                 value={group.logisticsStatus}
                                 onChange={(e) =>
-                                  handleStatusChange(group, e.target.value)
+                                  actions.updateLogisticsStatus(
+                                    group,
+                                    e.target.value
+                                  )
                                 }
                               >
                                 {LOGISTICS_ORDER.map((s) => (
@@ -472,7 +456,7 @@ export default function OrdersTab({ findCatalogItem }) {
 
                                 return (
                                   <div
-                                    key={idx}
+                                    key={subItem.id}
                                     className={`p-2 rounded border border-slate-200 flex justify-between items-center text-sm transition-all ${
                                       isSelected
                                         ? "bg-purple-50 border-purple-300"
@@ -577,7 +561,7 @@ export default function OrdersTab({ findCatalogItem }) {
                                         className={`text-[10px] font-bold px-2 py-1 rounded uppercase cursor-pointer outline-none text-center ${statusConf.color}`}
                                         value={subItem.status}
                                         onChange={(e) =>
-                                          handleItemStatusChange(
+                                          actions.updateItemStatus(
                                             subItem.id,
                                             e.target.value
                                           )

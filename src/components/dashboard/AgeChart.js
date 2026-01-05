@@ -1,12 +1,12 @@
 import React, { useMemo } from "react";
-import { getBusinessDaysDiff } from "../../utils/formatters"; // Ajuste o caminho se necessário
+import { getBusinessDaysDiff } from "../../utils/formatters";
 
 export default function AgeChart({ orders }) {
   const distribution = useMemo(() => {
     const counts = Array(11).fill(0);
 
     orders.forEach((o) => {
-      // Ignora pedidos finalizados ou cancelados no cálculo de idade
+      // Ignora pedidos finalizados ou cancelados
       if (
         o.status === "PEDIDO_PRONTO" ||
         o.status === "CANCELADO" ||
@@ -14,7 +14,11 @@ export default function AgeChart({ orders }) {
       )
         return;
 
-      let days = getBusinessDaysDiff(o.createdAt);
+      // --- A CORREÇÃO MÁGICA AQUI ---
+      // Usa a customCreatedAt se existir, senão usa createdAt
+      const dateToUse = o.customCreatedAt || o.createdAt;
+
+      let days = getBusinessDaysDiff(dateToUse);
       if (days > 10) days = 10;
       counts[days]++;
     });

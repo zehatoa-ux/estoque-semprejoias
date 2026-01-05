@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   CheckSquare,
   Edit3,
@@ -6,15 +6,29 @@ import {
   ShieldCheck,
   AlertTriangle,
   Layers,
+  Check,
+  X,
 } from "lucide-react";
 import DaysBadge from "./DaysBadge";
 
-// 👇 CORREÇÃO AQUI: Usando os nomes exatos que o erro mostrou
 import {
   PRODUCTION_STATUS_CONFIG,
   KANBAN_ORDER,
 } from "../../config/productionStatuses";
 import TransitToggle from "./TransitToggle";
+
+// Helper para formatar data para o input (YYYY-MM-DD)
+const getIsoDate = (val) => {
+  if (!val) return "";
+  if (val.toDate) return val.toDate().toISOString().split("T")[0];
+  if (typeof val === "string" && val.includes("/")) {
+    // Se for DD/MM/AAAA (legado), tenta converter, mas ideal é ISO
+    const parts = val.split(" ")[0].split("/");
+    if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  if (typeof val === "string") return val.split("T")[0];
+  return "";
+};
 
 export default function ProductionListView({
   groupedOrders,
@@ -25,15 +39,39 @@ export default function ProductionListView({
   handleMoveStatus,
   findCatalogItem,
   onToggleTransit,
+  onUpdateDate, // <--- NOVA PROP: Função para salvar a data
 }) {
-  // 👇 CORREÇÃO AQUI: Usando KANBAN_ORDER
+  // Estado local para controlar qual linha está sendo editada
+  const [editingDateId, setEditingDateId] = useState(null);
+  const [tempDate, setTempDate] = useState("");
+
+  const startEditing = (e, order) => {
+    e.stopPropagation(); // Não seleciona a linha
+    setEditingDateId(order.id);
+    // Usa a custom ou a created, formatada para o input
+    setTempDate(getIsoDate(order.customCreatedAt || order.createdAt));
+  };
+
+  const cancelEditing = (e) => {
+    e.stopPropagation();
+    setEditingDateId(null);
+    setTempDate("");
+  };
+
+  const saveDate = async (e, orderId) => {
+    e.stopPropagation();
+    if (onUpdateDate) {
+      await onUpdateDate(orderId, tempDate);
+    }
+    setEditingDateId(null);
+  };
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-10">
       {KANBAN_ORDER.map((statusId) => {
         const items = groupedOrders[statusId] || [];
         if (items.length === 0) return null;
 
-        // 👇 CORREÇÃO AQUI: Usando PRODUCTION_STATUS_CONFIG
         const config = PRODUCTION_STATUS_CONFIG[statusId] || {
           label: statusId,
           color: "bg-gray-500 text-white",
@@ -60,7 +98,7 @@ export default function ProductionListView({
                   <th className="px-4 py-2 w-10 text-center">
                     <CheckSquare size={14} />
                   </th>
-                  <th className="px-4 py-2 w-20 text-center">Prazo</th>
+                  <th className="px-4 py-2 w-28 text-center">Prazo / Data</th>
                   <th className="px-4 py-2">Item</th>
                   <th className="px-4 py-2 w-1/3">Especificações</th>
                   <th className="px-4 py-2">Cliente / Pagamento</th>
@@ -71,6 +109,7 @@ export default function ProductionListView({
               <tbody className="divide-y divide-slate-100">
                 {items.map((order) => {
                   const isSelected = selectedOrders.has(order.id);
+                  const isEditingDate = editingDateId === order.id;
                   const catalog = findCatalogItem
                     ? findCatalogItem(order.sku)
                     : null;
@@ -100,8 +139,46 @@ export default function ProductionListView({
                         />
                       </td>
 
-                      <td className="px-4 py-3">
-                        <DaysBadge date={order.createdAt} />
+                      {/* --- COLUNA DE DATA EDITÁVEL --- */}
+                      <td className="px-4 py-3 text-center align-middle">
+                        {isEditingDate ? (
+                          <div className="flex items-center gap-1 animate-fade-in">
+                            <input
+                              type="date"
+                              className="w-[110px] text-[10px] p-1 border rounded bg-white shadow-sm"
+                              value={tempDate}
+                              onChange={(e) => setTempDate(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <button
+                              onClick={(e) => saveDate(e, order.id)}
+                              className="bg-green-100 text-green-700 p-1 rounded hover:bg-green-200"
+                              title="Salvar Data"
+                            >
+                              <Check size={12} />
+                            </button>
+                            <button
+                              onClick={cancelEditing}
+                              className="bg-red-100 text-red-700 p-1 rounded hover:bg-red-200"
+                              title="Cancelar"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div
+                            className="cursor-pointer hover:scale-105 transition-transform relative group"
+                            onClick={(e) => startEditing(e, order)}
+                            title="Clique para editar a data de entrada"
+                          >
+                            <DaysBadge
+                              date={order.customCreatedAt || order.createdAt}
+                            />
+                            <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 bg-blue-600 text-white rounded-full p-0.5 shadow-sm transition-opacity">
+                              <Edit3 size={8} />
+                            </div>
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-4 py-3">
@@ -159,6 +236,13 @@ export default function ProductionListView({
                             </span>
                           )}
 
+                          {/* LOTE DA PEDRA */}
+                          {order.specs?.stoneBatch && (
+                            <span className="bg-blue-50 text-blue-700 border border-blue-100 px-1 rounded font-mono">
+                              Lote: {order.specs.stoneBatch}
+                            </span>
+                          )}
+
                           {order.specs?.engraving &&
                             order.specs.engraving !== "ND" && (
                               <span className="bg-purple-50 text-purple-700 border border-purple-100 px-1 rounded italic">
@@ -191,7 +275,6 @@ export default function ProductionListView({
                             handleMoveStatus(order.id, e.target.value)
                           }
                         >
-                          {/* 👇 CORREÇÃO AQUI TAMBÉM: KANBAN_ORDER e PRODUCTION_STATUS_CONFIG */}
                           {KANBAN_ORDER.map((s) => (
                             <option key={s} value={s}>
                               {PRODUCTION_STATUS_CONFIG[s]?.label || s}
@@ -200,15 +283,12 @@ export default function ProductionListView({
                         </select>
                       </td>
 
-                      {/* 7. Ações */}
                       <td className="px-4 py-3 text-center flex justify-center gap-2 items-center">
-                        {/* 👇 O BOTÃO ENTRA AQUI 👇 */}
                         <TransitToggle
                           order={order}
                           onToggle={onToggleTransit}
                         />
 
-                        {/* Uma barrinha separadora visual (opcional) */}
                         <div className="w-[1px] h-4 bg-slate-200 mx-1"></div>
 
                         <button

@@ -84,6 +84,20 @@ export default function ProductionTab({ findCatalogItem, user }) {
     findCatalogItem
   );
 
+  const handleUpdateDate = async (orderId, newDate) => {
+    try {
+      // Passando user.name (se user existir) ou "Admin"
+      await productionService.updateOrderField(
+        orderId,
+        "customCreatedAt",
+        newDate,
+        user?.name || "Admin"
+      );
+    } catch (error) {
+      alert("Erro ao atualizar data: " + error.message);
+    }
+  };
+
   // Adicione apenas isso:// src/hooks/useProductionGrouping.js
   const groupedOrders = useProductionGrouping(filteredOrders, groupBy);
 
@@ -530,6 +544,7 @@ export default function ProductionTab({ findCatalogItem, user }) {
             handleMoveStatus={handleMoveStatus}
             findCatalogItem={findCatalogItem}
             onToggleTransit={handleTransitToggle}
+            onUpdateDate={handleUpdateDate}
           />
         )}
 
@@ -602,6 +617,7 @@ export default function ProductionTab({ findCatalogItem, user }) {
                           onDelete={handleDeleteOrder}
                           onMoveStatus={handleMoveStatus}
                           onToggleTransit={handleTransitToggle}
+                          onUpdateDate={handleUpdateDate}
                         />
                       ))}
                     </div>

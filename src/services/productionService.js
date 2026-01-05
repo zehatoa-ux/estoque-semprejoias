@@ -15,8 +15,7 @@ import { db } from "../config/firebase";
 // IMPORTA O ID DA COLEÇÃO DO ARQUIVO DE CONSTANTES
 import { APP_COLLECTION_ID } from "../config/constants";
 
-// --- DEFINIÇÃO DO CAMINHO (ESSA LINHA É CRUCIAL) ---
-// Ela deve ficar aqui fora, para ser vista por todo o arquivo
+// --- DEFINIÇÃO DO CAMINHO ---
 const COLLECTION_PATH = [
   "artifacts",
   APP_COLLECTION_ID,
@@ -55,7 +54,7 @@ export const productionService = {
       month: "short",
     }).format(now)}/${String(now.getFullYear()).slice(-2)}`;
 
-    // Caminho da estatística é fixo, não usa o COLLECTION_PATH dos pedidos
+    // Caminho da estatística é fixo
     const statsRef = doc(
       db,
       "artifacts",
@@ -107,14 +106,23 @@ export const productionService = {
 
   // --- ALTERNAR TRÂNSITO (SUBINDO/DESCENDO) ---
   async toggleTransit(orderId, direction, userName) {
-    // Usa o seu helper existente para pegar a referência certa!
     const orderRef = getOrderRef(orderId);
 
     await updateDoc(orderRef, {
       transit_status: direction, // 'subindo', 'descendo' ou null
       transit_updated_at: serverTimestamp(),
       transit_updated_by: userName || "Sistema",
-      // Opcional: Atualiza o lastUpdate geral também para sabermos que houve mexida
+      lastUpdate: serverTimestamp(),
+    });
+  },
+
+  // --- NOVO: ATUALIZAR CAMPO GENÉRICO (Usado para a Data) ---
+  async updateOrderField(orderId, field, value, userName) {
+    const orderRef = getOrderRef(orderId);
+
+    await updateDoc(orderRef, {
+      [field]: value, // Ex: customCreatedAt: "2023-10-25"
+      updatedBy: userName || "Sistema",
       lastUpdate: serverTimestamp(),
     });
   },

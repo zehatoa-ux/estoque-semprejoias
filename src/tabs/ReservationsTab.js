@@ -1,3 +1,4 @@
+// src/tabs/ReservationsTab.js
 import React, { useState, useMemo } from "react";
 import {
   Search,
@@ -14,19 +15,12 @@ import {
   Plus,
   X,
   Save,
-  CheckCircle, // Importei para o ícone de sucesso
-  AlertTriangle, // Importei para o ícone de alerta
+  CheckCircle,
+  AlertTriangle,
 } from "lucide-react";
-import {
-  collection,
-  addDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  writeBatch,
-} from "firebase/firestore";
-import { db } from "../config/firebase";
-import { APP_COLLECTION_ID } from "../config/constants";
+
+// --- MUDANÇA: Usamos o Service agora, não o Firestore direto ---
+import { reservationsService } from "../services/reservationsService";
 import { normalizeText } from "../utils/formatters";
 import ProductionConversionModal from "../components/modals/ProductionConversionModal";
 
@@ -42,20 +36,21 @@ export default function ReservationsTab({
   reservations,
   inventory = [],
   findCatalogItem,
-  // Props do App.js
+  // Props do App.js (Formulário de criação manual)
   resSku,
   setResSku,
   resQty,
   setResQty,
   resNote,
   setResNote,
-  handleCreateReservation,
+  handleCreateReservation, // Mantido do App.js por enquanto (pode ser migrado depois)
 }) {
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [conversionData, setConversionData] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [isCreating, setIsCreating] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // --- FILTROS E ORDENAÇÃO ---
   const filteredReservations = useMemo(() => {
@@ -82,7 +77,7 @@ export default function ReservationsTab({
       return matchesStatus && matchesSearch;
     });
 
-    // 2. Ordenar (O Mais recente no topo, usando Timestamp Real)
+    // 2. Ordenar (O Mais recente no topo)
     return filtered.sort((a, b) => {
       const dateA = parseDate(a.createdAt);
       const dateB = parseDate(b.createdAt);
@@ -90,53 +85,13 @@ export default function ReservationsTab({
     });
   }, [reservations, searchText, statusFilter, findCatalogItem]);
 
-  // --- AÇÕES ---
+  // --- AÇÕES (Agora delegadas ao Service) ---
+
   const handleConfirmConversion = async (enrichedData) => {
     try {
-      if (enrichedData.fromStock && enrichedData.stockItemId) {
-        await deleteDoc(
-          doc(
-            db,
-            "artifacts",
-            APP_COLLECTION_ID,
-            "public",
-            "data",
-            "inventory_items",
-            enrichedData.stockItemId
-          )
-        );
-      }
-
-      const { id: oldId, stockItemId, ...dataToSave } = enrichedData;
-
-      await addDoc(
-        collection(
-          db,
-          "artifacts",
-          APP_COLLECTION_ID,
-          "public",
-          "data",
-          "production_orders"
-        ),
-        {
-          ...dataToSave,
-          status: dataToSave.status || "SOLICITACAO",
-          originalReservationId: oldId,
-          convertedAt: serverTimestamp(),
-        }
-      );
-
-      await deleteDoc(
-        doc(
-          db,
-          "artifacts",
-          APP_COLLECTION_ID,
-          "public",
-          "data",
-          "reservations",
-          oldId
-        )
-      );
+      setLoading(true);
+      // O Service cuida de tudo: Criar Pedido, Tirar do Estoque, Apagar Reserva
+      await reservationsService.convertToOrder(enrichedData);
 
       alert(
         enrichedData.fromStock
@@ -145,7 +100,10 @@ export default function ReservationsTab({
       );
       setConversionData(null);
     } catch (error) {
+      console.error(error);
       alert("Erro ao converter: " + error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -166,29 +124,31 @@ export default function ReservationsTab({
       return;
 
     try {
-      const batch = writeBatch(db);
-      selectedIds.forEach((id) => {
-        const ref = doc(
-          db,
-          "artifacts",
-          APP_COLLECTION_ID,
-          "public",
-          "data",
-          "reservations",
-          id
-        );
-        batch.delete(ref);
-      });
-      await batch.commit();
+      setLoading(true);
+      // Service deleta em lote
+      await reservationsService.deleteReservations(Array.from(selectedIds));
+
       setSelectedIds(new Set());
       alert("Reservas excluídas.");
     } catch (e) {
       alert("Erro: " + e.message);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col bg-slate-50 p-4 overflow-hidden">
+    <div className="h-[calc(100vh-140px)] flex flex-col bg-slate-50 p-4 overflow-hidden relative">
+      {/* Loading Overlay Global da Aba */}
+      {loading && (
+        <div className="absolute inset-0 bg-white/50 z-50 flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white p-4 rounded-xl shadow-xl flex items-center gap-3">
+            <div className="animate-spin w-6 h-6 border-4 border-purple-600 border-t-transparent rounded-full"></div>
+            <span className="font-bold text-purple-800">Processando...</span>
+          </div>
+        </div>
+      )}
+
       {conversionData && (
         <ProductionConversionModal
           isOpen={!!conversionData}
@@ -278,7 +238,7 @@ export default function ReservationsTab({
       )}
 
       {/* HEADER */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4 flex flex-col md:flex-row gap-4 justify-between items-center">
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4 flex flex-col md:flex-row gap-4 justify-between items-center shrink-0">
         <div className="flex items-center gap-2 text-slate-700">
           <Package className="text-purple-600" />
           <h2 className="font-bold text-lg">Reservas & Pedidos</h2>
@@ -344,7 +304,6 @@ export default function ReservationsTab({
               <th className="px-4 py-3 w-10 text-center">
                 <CheckSquare size={14} />
               </th>
-              {/* NOVA COLUNA AQUI */}
               <th className="px-4 py-3 text-center">Disponibilidade</th>
               <th className="px-4 py-3">Data</th>
               <th className="px-4 py-3">Produto / SKU</th>
@@ -360,13 +319,12 @@ export default function ReservationsTab({
               const isSelected = selectedIds.has(res.id);
 
               // --- LÓGICA DE DISPONIBILIDADE ---
-              // Conta quantos itens "in_stock" existem para esse SKU
               const stockCount = inventory.filter(
                 (i) => i.sku === res.sku && i.status === "in_stock"
               ).length;
               const isAvailable = stockCount > 0;
 
-              // --- CORREÇÃO DE DATA ---
+              // --- FORMATAÇÃO DE DATA ---
               let displayDate = "-";
               let displayTime = "";
 
@@ -452,14 +410,11 @@ export default function ReservationsTab({
                             {res.specs.stoneColor}
                           </span>
                         )}
-
-                      {/* MUDANÇA AQUI: De Banho para Finalização */}
                       {res.specs?.finishing && res.specs.finishing !== "ND" && (
                         <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] border">
                           Finalização: {res.specs.finishing}
                         </span>
                       )}
-
                       {!res.specs?.size &&
                         !res.specs?.stoneType &&
                         !res.specs?.finishing && (

@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   PackageCheck,
   Layers,
+  Calendar, // Importei o ícone de calendário
 } from "lucide-react";
 
 // Cores
@@ -63,16 +64,18 @@ export default function ProductionConversionModal({
   const safeAddress = safeShipping.address || {};
   const safeSpecs = safeRes.specs || {};
 
-  // --- 1. LÓGICA DE ESTOQUE INTELIGENTE ---
+  // --- 1. LÓGICA DE ESTOQUE INTELIGENTE (CORRIGIDA) ---
   const stockItem = useMemo(() => {
     if (isEditing || !inventory || inventory.length === 0 || !safeRes.sku)
       return null;
     const targetSku = String(safeRes.sku).trim().toUpperCase();
+
+    // Busca apenas item que bate o SKU E está com status 'in_stock'
     return inventory.find((i) => {
       const itemSku = String(i.sku || "")
         .trim()
         .toUpperCase();
-      return itemSku === targetSku;
+      return itemSku === targetSku && i.status === "in_stock";
     });
   }, [inventory, safeRes.sku, isEditing]);
 
@@ -115,6 +118,7 @@ export default function ProductionConversionModal({
     shipping: { address: {} },
     initialStatus: "SOLICITACAO",
     useStock: false,
+    customDate: "", // NOVO CAMPO DE DATA
   });
 
   // Ativa modo estoque se encontrar item
@@ -160,11 +164,19 @@ export default function ProductionConversionModal({
         }
       }
 
+      // Lógica da Data Inicial (Hoje ou Data da Reserva)
+      const dateRef = safeRes.createdAt?.toDate
+        ? safeRes.createdAt.toDate()
+        : new Date();
+      const dateStr = dateRef.toISOString().split("T")[0]; // Formato YYYY-MM-DD para o input type="date"
+
       setFormData((prev) => ({
         ...prev,
+        customDate: dateStr, // Inicializa com a data
         specs: {
           size: safeSpecs.size || "",
           stoneType: fixedStoneType,
+          stoneBatch: safeSpecs.stoneBatch || "", // NOVO: Lote da Pedra
           stoneColor: targetColor,
           standardColor:
             safeSpecs.standardColor || catalogData.standardColor || "",
@@ -230,6 +242,8 @@ export default function ProductionConversionModal({
     const finalData = {
       ...reservation,
       specs: { ...safeSpecs, ...formData.specs },
+      // Passamos a data customizada junto com o pedido
+      customCreatedAt: formData.customDate,
       order: {
         ...safeOrder,
         ...formData.order,
@@ -418,6 +432,21 @@ export default function ProductionConversionModal({
                   </div>
                 )}
               </div>
+
+              {/* NOVO CAMPO: LOTE DA PEDRA */}
+              <div>
+                <label className="lbl">Lote da Pedra</label>
+                <input
+                  type="text"
+                  className="ipt"
+                  placeholder="Ex: LT-2023"
+                  value={formData.specs.stoneBatch}
+                  onChange={(e) =>
+                    update("specs", "stoneBatch", e.target.value)
+                  }
+                />
+              </div>
+
               <div>
                 <label className="lbl">Cor Escolhida</label>
                 <select
@@ -452,7 +481,6 @@ export default function ProductionConversionModal({
                 )}
               </div>
 
-              {/* ALTERAÇÃO AQUI: Label agora é FINALIZAÇÃO */}
               <div>
                 <label className="lbl">Finalização</label>
                 <input
@@ -463,7 +491,7 @@ export default function ProductionConversionModal({
                 />
               </div>
 
-              <div className="col-span-2 md:col-span-4">
+              <div className="col-span-2 md:col-span-3">
                 <label className="lbl">Gravação</label>
                 <input
                   type="text"
@@ -523,7 +551,25 @@ export default function ProductionConversionModal({
                   </h3>
                   <div className="space-y-3">
                     <div className="grid grid-cols-3 gap-3">
+                      {/* NOVO CAMPO: DATA DE ENTRADA */}
                       <div className="col-span-1">
+                        <label className="lbl flex items-center gap-1">
+                          <Calendar size={10} /> Data Entrada
+                        </label>
+                        <input
+                          type="date"
+                          className="ipt font-bold text-blue-700"
+                          value={formData.customDate}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              customDate: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+
+                      <div className="col-span-2">
                         <label className="lbl">Nº Pedido</label>
                         <input
                           type="text"
@@ -534,17 +580,17 @@ export default function ProductionConversionModal({
                           }
                         />
                       </div>
-                      <div className="col-span-2">
-                        <label className="lbl">Nome Completo</label>
-                        <input
-                          type="text"
-                          className="ipt"
-                          value={formData.order.customer.name}
-                          onChange={(e) =>
-                            update("order", "customer", e.target.value, "name")
-                          }
-                        />
-                      </div>
+                    </div>
+                    <div>
+                      <label className="lbl">Nome Completo</label>
+                      <input
+                        type="text"
+                        className="ipt"
+                        value={formData.order.customer.name}
+                        onChange={(e) =>
+                          update("order", "customer", e.target.value, "name")
+                        }
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>

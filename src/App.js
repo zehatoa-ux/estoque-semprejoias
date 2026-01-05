@@ -29,20 +29,6 @@ import {
   Factory,
   Truck,
 } from "lucide-react";
-import {
-  collection,
-  addDoc,
-  updateDoc,
-  doc,
-  query,
-  onSnapshot,
-  orderBy,
-  serverTimestamp,
-  writeBatch,
-  where,
-  getDocs,
-  deleteDoc,
-} from "firebase/firestore";
 
 // Config e Utils
 import { auth, db } from "./config/firebase";
@@ -72,6 +58,8 @@ import ProductionTab from "./tabs/ProductionTab"; // <--- NOVA IMPORTAÇÃO
 import OrdersTab from "./tabs/OrdersTab";
 import { useCatalog } from "./hooks/useCatalog";
 import StockTab from "./tabs/StockTab";
+import { useInventory } from "./hooks/useInventory";
+import { inventoryService } from "./services/inventoryService";
 
 const TAB_LABELS = {
   stock: "ESTOQUE",
@@ -108,8 +96,7 @@ function InventorySystem() {
 
   // --- STATES ---
   const [activeTab, setActiveTab] = useState("stock");
-  const [inventory, setInventory] = useState([]);
-  const [reservations, setReservations] = useState([]);
+  const { inventory, reservations } = useInventory(user);
 
   // Buffer System
   const [scannedBuffer, setScannedBuffer] = useState([]);
@@ -199,27 +186,6 @@ function InventorySystem() {
   }, []);
 
   // Listener do Firebase (Dados)
-  useEffect(() => {
-    if (!user || !db) return;
-    const unsub1 = onSnapshot(
-      query(
-        collection(db, "artifacts", appId, "public", "data", "inventory_items"),
-        orderBy("timestamp", "desc")
-      ),
-      (s) => setInventory(s.docs.map((d) => ({ id: d.id, ...d.data() })))
-    );
-    const unsub2 = onSnapshot(
-      query(
-        collection(db, "artifacts", appId, "public", "data", "reservations"),
-        orderBy("createdAt", "desc")
-      ),
-      (s) => setReservations(s.docs.map((d) => ({ id: d.id, ...d.data() })))
-    );
-    return () => {
-      unsub1();
-      unsub2();
-    };
-  }, [user, db, appId]);
 
   const handleLoginAttempt = async (u, p) => {
     const result = await login(u, p);
@@ -480,47 +446,34 @@ function InventorySystem() {
 
   const handleCommitBuffer = async () => {
     if (scannedBuffer.length === 0) return;
-    if (!window.confirm(`Confirmar envio de ${scannedBuffer.length} itens?`))
+
+    if (
+      !window.confirm(
+        `Confirmar envio de ${scannedBuffer.length} itens para o estoque?`
+      )
+    )
       return;
-    if (!db) return;
+
     setIsCommitting(true);
-    const chunkSize = 450;
-    const chunks = [];
-    for (let i = 0; i < scannedBuffer.length; i += chunkSize)
-      chunks.push(scannedBuffer.slice(i, i + chunkSize));
+
     try {
-      let total = 0;
-      for (const chunk of chunks) {
-        const batch = writeBatch(db);
-        chunk.forEach((i) => {
-          const docRef = doc(
-            collection(
-              db,
-              "artifacts",
-              appId,
-              "public",
-              "data",
-              "inventory_items"
-            )
-          );
-          batch.set(docRef, {
-            sku: i.sku,
-            baseSku: i.baseSku,
-            status: "in_stock",
-            addedBy: i.addedBy,
-            timestamp: serverTimestamp(),
-            dateIn: i.dateIn,
-            dateOut: null,
-          });
-        });
-        await batch.commit();
-        total += chunk.length;
-      }
-      showNotification(`${total} itens adicionados.`, "success");
+      // Usa o serviço novo! Sem precisar de appId ou writeBatch aqui.
+      await inventoryService.importItems(
+        scannedBuffer,
+        user?.name || "Conferência"
+      );
+
+      showNotification(
+        `${scannedBuffer.length} itens adicionados com sucesso!`,
+        "success"
+      );
+
+      // Limpa a tela
       setScannedBuffer([]);
       setBufferPage(1);
     } catch (err) {
-      showNotification("Erro no envio.", "error");
+      console.error(err);
+      showNotification("Erro ao salvar itens: " + err.message, "error");
     } finally {
       setIsCommitting(false);
     }
@@ -579,45 +532,18 @@ function InventorySystem() {
     executeBatchSales(lines);
   };
   const executeBatchSales = async (skuList) => {
-    if (!db) return;
-    const batch = writeBatch(db);
-    let batchCount = 0;
-    const tempInventory = [...inventory];
-    const skuCounts = {};
-    skuList.forEach((s) => (skuCounts[s] = (skuCounts[s] || 0) + 1));
+    try {
+      // Usa o serviço para processar a venda no banco
+      await inventoryService.sellItems(skuList, user?.name || "Venda");
 
-    for (const sku of skuList) {
-      const skuToSell = sku.trim().toUpperCase();
-      const itemIndex = tempInventory.findIndex(
-        (i) => i.sku === skuToSell && i.status === "in_stock"
-      );
-      if (itemIndex !== -1) {
-        const item = tempInventory[itemIndex];
-        const itemRef = doc(
-          db,
-          "artifacts",
-          appId,
-          "public",
-          "data",
-          "inventory_items",
-          item.id
-        );
-        batch.update(itemRef, {
-          status: "sold",
-          dateOut: new Date().toLocaleString("pt-BR"),
-          soldTimestamp: serverTimestamp(),
-          soldBy: user.name,
-        });
-        tempInventory.splice(itemIndex, 1);
-        batchCount++;
-      }
-    }
-    if (batchCount > 0) {
-      await batch.commit();
-      showNotification(`${batchCount} baixados!`, "success");
+      // Feedback Visual
+      showNotification(`${skuList.length} itens baixados!`, "success");
       setSalesInput("");
       setConflictData(null);
-    } else showNotification("Nenhum disponível.", "warning");
+    } catch (error) {
+      console.error(error);
+      showNotification("Erro ao processar baixa: " + error.message, "error");
+    }
   };
 
   const requestSort = (key) =>

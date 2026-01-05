@@ -2,7 +2,6 @@ import { db } from "../config/firebase";
 import { APP_COLLECTION_ID } from "../config/constants";
 import {
   collection,
-  doc,
   writeBatch,
   serverTimestamp,
   query,
@@ -10,29 +9,52 @@ import {
   getDocs,
   limit,
   orderBy,
+  doc,
 } from "firebase/firestore";
 
-// Caminho base da coleção
+// Caminho centralizado
 const COLLECTION_PATH = `artifacts/${APP_COLLECTION_ID}/public/data/inventory_items`;
 
 export const inventoryService = {
-  /**
-   * Ajusta a quantidade (Adiciona itens NOVOS ou Baixa itens EXISTENTES)
-   * @param {string} sku - O SKU do produto
-   * @param {number} delta - Quantidade a ajustar (+1 ou -1)
-   * @param {string} userName - Nome do usuário que fez a ação (importante para histórico)
-   */
+  // ... (mantenha adjustQuantity e deleteItem como estavam) ...
+
+  // Função para importar itens da Conferência (Buffer)
+  async importItems(items, userName = "Conferência") {
+    if (!items || items.length === 0) return 0;
+
+    const batch = writeBatch(db);
+    const collectionRef = collection(db, COLLECTION_PATH);
+
+    items.forEach((item) => {
+      // Cria um novo documento com ID automático
+      const newDocRef = doc(collectionRef);
+
+      batch.set(newDocRef, {
+        sku: item.sku,
+        baseSku: item.baseSku || item.sku,
+        status: "in_stock",
+        addedBy: userName,
+        timestamp: serverTimestamp(), // Hora do servidor
+        dateIn: item.dateIn || new Date().toLocaleString("pt-BR"),
+        dateOut: null,
+        source: "conference_scan",
+      });
+    });
+
+    await batch.commit();
+    return items.length;
+  },
+  // Função robusta de ajuste (Adicionar ou Remover)
   async adjustQuantity(sku, delta, userName = "Sistema") {
     const batch = writeBatch(db);
     const collectionRef = collection(db, COLLECTION_PATH);
 
     if (delta > 0) {
-      // --- ADICIONAR: Cria novos documentos para cada unidade ---
       for (let i = 0; i < delta; i++) {
-        const newDocRef = doc(collectionRef); // Gera ID automático
+        const newDocRef = doc(collectionRef);
         batch.set(newDocRef, {
           sku: sku,
-          baseSku: sku, // Simplificação, idealmente viria do catálogo
+          baseSku: sku,
           status: "in_stock",
           addedBy: userName,
           timestamp: serverTimestamp(),
@@ -41,24 +63,17 @@ export const inventoryService = {
         });
       }
     } else {
-      // --- REMOVER: Busca itens 'in_stock' e marca como 'adjusted_out' ---
       const qtyToRemove = Math.abs(delta);
-
-      // Busca os itens mais antigos primeiro (FIFO) ou mais novos (LIFO)
-      // Aqui ordenamos por timestamp desc (LIFO - Last In, First Out) para bater com App.js
       const q = query(
         collectionRef,
         where("sku", "==", sku),
         where("status", "==", "in_stock"),
-        orderBy("timestamp", "desc"),
+        orderBy("timestamp", "asc"), // FIFO: Tira os mais antigos primeiro
         limit(qtyToRemove)
       );
 
       const snapshot = await getDocs(q);
-
-      if (snapshot.empty) {
-        throw new Error("Não há itens em estoque suficientes para remover.");
-      }
+      if (snapshot.empty) throw new Error("Estoque insuficiente.");
 
       snapshot.docs.forEach((docSnap) => {
         batch.update(docSnap.ref, {
@@ -69,74 +84,22 @@ export const inventoryService = {
         });
       });
     }
-
     await batch.commit();
   },
 
-  /**
-   * "Excluir Tudo": Na verdade faz uma baixa lógica (adjusted_out) em massa
-   * para manter o histórico de que os itens saíram.
-   */
-  async deleteItem(sku, userName = "Sistema") {
+  // Função de Venda em Lote (Substitui executeBatchSales do App.js)
+  async sellItems(skuList, userName = "Venda") {
+    if (!skuList || skuList.length === 0) return;
+
     const batch = writeBatch(db);
     const collectionRef = collection(db, COLLECTION_PATH);
 
-    // Busca TODOS os itens em estoque deste SKU
-    const q = query(
-      collectionRef,
-      where("sku", "==", sku),
-      where("status", "==", "in_stock")
-    );
-
-    const snapshot = await getDocs(q);
-
-    if (snapshot.empty) return; // Nada a deletar
-
-    const chunkSize = 450; // Limite do batch do Firestore é 500
-    let operationCount = 0;
-
-    // Processa em pedaços se houver muitos itens
-    for (const docSnap of snapshot.docs) {
-      batch.update(docSnap.ref, {
-        status: "adjusted_out",
-        removedBy: userName,
-        outTimestamp: serverTimestamp(),
-        dateOut: new Date().toLocaleString("pt-BR"),
-        bulkAction: true,
-      });
-
-      operationCount++;
-
-      // Commit parcial se atingir o limite do batch
-      if (operationCount >= chunkSize) {
-        await batch.commit();
-        operationCount = 0;
-        // Reinicia batch para o próximo loop
-        // (Nota: em casos muito grandes isso precisaria de lógica mais complexa,
-        // mas para uso manual funciona bem)
-      }
-    }
-
-    if (operationCount > 0) {
-      await batch.commit();
-    }
-  },
-
-  /**
-   * Processa vendas em lote
-   */
-  async batchDeduct(skuList, userName = "Venda") {
-    if (!skuList || skuList.length === 0) return;
-
-    // Agrupa SKUs para saber quantos buscar de cada
+    // Agrupa contagem: { "ANEL-01": 2, "BRINCO-02": 1 }
     const counts = {};
     skuList.forEach((sku) => (counts[sku] = (counts[sku] || 0) + 1));
 
-    const batch = writeBatch(db);
-    const collectionRef = collection(db, COLLECTION_PATH);
-
-    // Processar cada SKU
     for (const [sku, qty] of Object.entries(counts)) {
+      // Busca X itens disponíveis deste SKU no banco
       const q = query(
         collectionRef,
         where("sku", "==", sku),
@@ -146,9 +109,17 @@ export const inventoryService = {
 
       const snapshot = await getDocs(q);
 
+      if (snapshot.size < qty) {
+        console.warn(
+          `Estoque insuficiente para ${sku}. Solicitado: ${qty}, Disponível: ${snapshot.size}`
+        );
+        // Opcional: Lançar erro ou vender apenas o que tem.
+        // Aqui vendemos o que tem para não travar o lote todo.
+      }
+
       snapshot.docs.forEach((docSnap) => {
         batch.update(docSnap.ref, {
-          status: "sold", // Status diferente para venda
+          status: "sold", // Status de venda
           soldBy: userName,
           soldTimestamp: serverTimestamp(),
           dateOut: new Date().toLocaleString("pt-BR"),
@@ -157,5 +128,6 @@ export const inventoryService = {
     }
 
     await batch.commit();
+    return skuList.length; // Retorna quantos itens tentamos vender
   },
 };

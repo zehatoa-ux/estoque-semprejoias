@@ -1,117 +1,142 @@
 import React, { useState, useEffect } from "react";
-import {
-  X,
-  Save,
-  User,
-  Hash,
-  Truck,
-  MapPin,
-  DollarSign,
-  CreditCard,
-  FileText,
-  Phone,
-  Mail,
-  FileDigit,
-} from "lucide-react";
+import { X, User, MapPin, Truck, Save, CreditCard, Hash } from "lucide-react";
 
 export default function OrderEditModal({
   isOpen,
-  orderGroup,
   onClose,
   onSave,
+  orderGroup,
 }) {
-  // Estado inicial com TODOS os campos possíveis
+  // 1. Estado "Flat"
   const [formData, setFormData] = useState({
-    // Pedido
     orderNumber: "",
-    notes: "",
-
-    // Cliente
     customerName: "",
     customerCpf: "",
     customerPhone: "",
     customerEmail: "",
-
-    // Logística
-    shippingMethod: "",
-    shippingPrice: "",
-    tracking: "",
-
-    // Endereço
-    zip: "",
-    street: "",
-    number: "",
-    comp: "",
-    district: "", // Bairro
-    city: "",
-    state: "",
-
-    // Financeiro
-    paymentMethod: "",
-    totalValueOverride: "",
+    addrZip: "",
+    addrStreet: "",
+    addrNumber: "",
+    addrComp: "",
+    addrDistrict: "",
+    addrCity: "",
+    addrUf: "",
+    shipMethod: "",
+    shipPrice: "",
+    shipTracking: "",
+    payMethod: "",
+    payTotal: "",
+    notes: "",
   });
 
+  // --- CARREGAR DADOS ---
   useEffect(() => {
     if (isOpen && orderGroup && orderGroup.items.length > 0) {
-      // Pega os dados do primeiro item do grupo como referência (já que são compartilhados)
       const refItem = orderGroup.items[0];
-      const order = refItem.order || {};
-      const customer = order.customer || {};
-      const shipping = refItem.shipping || {};
-      const address = shipping.address || {};
-      const payment = order.payment || {};
+
+      const safeOrder = refItem.order || {};
+      const safeCust = safeOrder.customer || {};
+      const safePay = safeOrder.payment || {};
+      const safeShipping = refItem.shipping || {};
+      const safeAddr = safeShipping.address || safeOrder.shipping_address || {};
 
       setFormData({
-        orderNumber: order.number || "",
-        notes: order.notes || refItem.note || "", // Tenta pegar nota do pedido ou do item
-
-        customerName: customer.name || "",
-        customerCpf: customer.cpf || "",
-        customerPhone: customer.phone || "",
-        customerEmail: customer.email || "",
-
-        shippingMethod: shipping.tipoenvio || shipping.method || "",
-        shippingPrice: shipping.price || "",
-        tracking: shipping.tracking || shipping.rastreamento || "",
-
-        zip: address.zip || "",
-        street: address.street || "",
-        number: address.number || "",
-        comp: address.complemento || "",
-        district: address.bairro || "",
-        city: address.city || "",
-        state: address.statecode || address.state || "",
-
-        paymentMethod: payment.method || "",
-        totalValueOverride: payment.total || "",
+        orderNumber: safeOrder.number || orderGroup.orderNumber || "",
+        customerName: safeCust.name || orderGroup.customerName || "",
+        customerCpf: safeCust.cpf || "",
+        customerPhone: safeCust.phone || "",
+        customerEmail: safeCust.email || "",
+        addrZip: safeAddr.zip || "",
+        addrStreet: safeAddr.street || "",
+        addrNumber: safeAddr.number || "",
+        addrComp: safeAddr.complemento || "",
+        addrDistrict: safeAddr.bairro || "",
+        addrCity: safeAddr.city || "",
+        addrUf: safeAddr.statecode || safeAddr.state || "",
+        shipMethod: safeShipping.tipoenvio || orderGroup.shippingMethod || "",
+        shipPrice: safeShipping.price || "",
+        shipTracking: safeShipping.tracking || safeShipping.rastreamento || "",
+        payMethod: safePay.method || "",
+        payTotal: orderGroup.totalValue || safePay.total || "",
+        notes: safeOrder.notes || "",
       });
     }
   }, [isOpen, orderGroup]);
 
   if (!isOpen) return null;
 
-  const handleChange = (field, value) => {
+  // --- FUNÇÃO DE LIMPEZA ---
+  const sanitizePayload = (obj) => {
+    const clean = {};
+    Object.keys(obj).forEach((key) => {
+      clean[key] = obj[key] === undefined || obj[key] === null ? "" : obj[key];
+    });
+    return clean;
+  };
+
+  const handleSubmit = () => {
+    // 2. MAPEAMENTO EXATO PARA O SERVICE
+    // Baseado na leitura do arquivo src/services/ordersService.js
+
+    const rawUpdates = {
+      // Pedido e Notas
+      orderNumber: formData.orderNumber,
+      notes: formData.notes, // AQUI ESTAVA O ERRO! O service lê .notes
+
+      // Cliente
+      customerName: formData.customerName,
+      customerCpf: formData.customerCpf,
+      customerPhone: formData.customerPhone,
+      customerEmail: formData.customerEmail,
+
+      // Logística
+      shippingMethod: formData.shipMethod,
+      shippingPrice: formData.shipPrice,
+      tracking: formData.shipTracking, // O service lê .tracking, não shippingTracking
+
+      // Endereço (Nomes curtos conforme o Service)
+      zip: formData.addrZip,
+      street: formData.addrStreet,
+      number: formData.addrNumber,
+      comp: formData.addrComp,
+      district: formData.addrDistrict,
+      city: formData.addrCity,
+      state: formData.addrUf.toUpperCase(), // O service lê .state e grava em statecode
+
+      // Pagamento
+      paymentMethod: formData.payMethod,
+      totalValueOverride: formData.payTotal, // O service usa esse nome para total
+    };
+
+    // 3. Limpeza final
+    const finalUpdates = sanitizePayload(rawUpdates);
+
+    console.log("Enviando updates corrigidos:", finalUpdates);
+    onSave(finalUpdates);
+  };
+
+  const update = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSave(formData);
-  };
-
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* HEADER */}
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Header */}
         <div className="bg-blue-600 p-4 flex justify-between items-center text-white shrink-0">
-          <div>
-            <h3 className="font-bold flex items-center gap-2 text-lg">
-              <User size={20} /> Editar Dados do Pedido
-            </h3>
-            <p className="text-xs text-blue-200 opacity-80">
-              Editando dados mestres para {orderGroup?.items.length} itens
-              vinculados.
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 p-2 rounded-lg">
+              <User size={24} />
+            </div>
+            <div>
+              <h2 className="font-bold text-lg leading-tight">
+                Editar Dados do Pedido
+              </h2>
+              <p className="text-blue-100 text-xs">
+                Editando dados mestres para {orderGroup?.items?.length} itens
+                vinculados.
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -121,214 +146,217 @@ export default function OrderEditModal({
           </button>
         </div>
 
-        {/* FORMULÁRIO COM SCROLL */}
-        <form
-          onSubmit={handleSubmit}
-          className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6"
-        >
-          {/* SEÇÃO 1: CLIENTE E PEDIDO */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-            <h4 className="text-xs font-bold text-blue-600 uppercase mb-3 flex items-center gap-2">
+        {/* Form Body */}
+        <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
+          {/* SEÇÃO CLIENTE */}
+          <div className="border rounded-xl p-4 bg-slate-50 border-slate-200">
+            <h3 className="font-bold text-blue-800 text-xs uppercase mb-3 flex items-center gap-2">
               <User size={14} /> Dados do Cliente
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="lbl">Número Pedido</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                  <Hash size={10} /> Número Pedido
+                </label>
                 <input
-                  type="text"
-                  className="ipt font-bold text-blue-700"
+                  className="w-full p-2 border border-blue-200 rounded outline-none focus:border-blue-500 font-bold text-blue-700 bg-blue-50/50"
                   value={formData.orderNumber}
-                  onChange={(e) => handleChange("orderNumber", e.target.value)}
-                  required
+                  onChange={(e) => update("orderNumber", e.target.value)}
                 />
               </div>
-              <div className="md:col-span-2">
-                <label className="lbl">Nome Completo</label>
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Nome Completo
+                </label>
                 <input
-                  type="text"
-                  className="ipt"
+                  className="w-full p-2 border rounded outline-none focus:border-blue-500"
                   value={formData.customerName}
-                  onChange={(e) => handleChange("customerName", e.target.value)}
-                  required
+                  onChange={(e) => update("customerName", e.target.value)}
                 />
               </div>
               <div>
-                <label className="lbl">CPF</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  CPF
+                </label>
                 <input
-                  type="text"
-                  className="ipt"
+                  className="w-full p-2 border rounded outline-none focus:border-blue-500"
                   value={formData.customerCpf}
-                  onChange={(e) => handleChange("customerCpf", e.target.value)}
+                  onChange={(e) => update("customerCpf", e.target.value)}
                 />
               </div>
-              <div>
-                <label className="lbl">Telefone / Zap</label>
-                <input
-                  type="text"
-                  className="ipt"
-                  value={formData.customerPhone}
-                  onChange={(e) =>
-                    handleChange("customerPhone", e.target.value)
-                  }
-                />
-              </div>
-              <div>
-                <label className="lbl">Email</label>
-                <input
-                  type="email"
-                  className="ipt"
-                  value={formData.customerEmail}
-                  onChange={(e) =>
-                    handleChange("customerEmail", e.target.value)
-                  }
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">
+                    Telefone / Zap
+                  </label>
+                  <input
+                    className="w-full p-2 border rounded outline-none focus:border-blue-500"
+                    value={formData.customerPhone}
+                    onChange={(e) => update("customerPhone", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">
+                    Email
+                  </label>
+                  <input
+                    className="w-full p-2 border rounded outline-none focus:border-blue-500"
+                    value={formData.customerEmail}
+                    onChange={(e) => update("customerEmail", e.target.value)}
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* SEÇÃO 2: ENDEREÇO */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-            <h4 className="text-xs font-bold text-orange-600 uppercase mb-3 flex items-center gap-2">
+          {/* SEÇÃO ENDEREÇO */}
+          <div className="border rounded-xl p-4 bg-white border-slate-200">
+            <h3 className="font-bold text-orange-700 text-xs uppercase mb-3 flex items-center gap-2">
               <MapPin size={14} /> Endereço de Entrega
-            </h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            </h3>
+            <div className="grid grid-cols-4 gap-3">
               <div>
-                <label className="lbl">CEP</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  CEP
+                </label>
                 <input
-                  type="text"
-                  className="ipt"
-                  value={formData.zip}
-                  onChange={(e) => handleChange("zip", e.target.value)}
+                  className="w-full p-2 border rounded"
+                  value={formData.addrZip}
+                  onChange={(e) => update("addrZip", e.target.value)}
                 />
               </div>
               <div className="col-span-2">
-                <label className="lbl">Rua / Logradouro</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Rua / Logradouro
+                </label>
                 <input
-                  type="text"
-                  className="ipt"
-                  value={formData.street}
-                  onChange={(e) => handleChange("street", e.target.value)}
+                  className="w-full p-2 border rounded"
+                  value={formData.addrStreet}
+                  onChange={(e) => update("addrStreet", e.target.value)}
                 />
               </div>
               <div>
-                <label className="lbl">Número</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Número
+                </label>
                 <input
-                  type="text"
-                  className="ipt"
-                  value={formData.number}
-                  onChange={(e) => handleChange("number", e.target.value)}
+                  className="w-full p-2 border rounded"
+                  value={formData.addrNumber}
+                  onChange={(e) => update("addrNumber", e.target.value)}
                 />
               </div>
               <div>
-                <label className="lbl">Complemento</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Complemento
+                </label>
                 <input
-                  type="text"
-                  className="ipt"
-                  value={formData.comp}
-                  onChange={(e) => handleChange("comp", e.target.value)}
+                  className="w-full p-2 border rounded"
+                  value={formData.addrComp}
+                  onChange={(e) => update("addrComp", e.target.value)}
                 />
               </div>
               <div>
-                <label className="lbl">Bairro</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Bairro
+                </label>
                 <input
-                  type="text"
-                  className="ipt"
-                  value={formData.district}
-                  onChange={(e) => handleChange("district", e.target.value)}
+                  className="w-full p-2 border rounded"
+                  value={formData.addrDistrict}
+                  onChange={(e) => update("addrDistrict", e.target.value)}
                 />
               </div>
               <div>
-                <label className="lbl">Cidade</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  Cidade
+                </label>
                 <input
-                  type="text"
-                  className="ipt"
-                  value={formData.city}
-                  onChange={(e) => handleChange("city", e.target.value)}
+                  className="w-full p-2 border rounded"
+                  value={formData.addrCity}
+                  onChange={(e) => update("addrCity", e.target.value)}
                 />
               </div>
               <div>
-                <label className="lbl">UF</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase text-red-600">
+                  UF
+                </label>
                 <input
-                  type="text"
-                  className="ipt uppercase"
+                  className="w-full p-2 border rounded font-bold uppercase text-center"
                   maxLength={2}
-                  value={formData.state}
-                  onChange={(e) => handleChange("state", e.target.value)}
+                  value={formData.addrUf}
+                  onChange={(e) =>
+                    update("addrUf", e.target.value.toUpperCase())
+                  }
                 />
               </div>
             </div>
           </div>
 
-          {/* SEÇÃO 3: LOGÍSTICA E PAGAMENTO */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <h4 className="text-xs font-bold text-purple-600 uppercase mb-3 flex items-center gap-2">
+            {/* SEÇÃO LOGÍSTICA */}
+            <div className="border rounded-xl p-4 bg-slate-50 border-slate-200">
+              <h3 className="font-bold text-purple-700 text-xs uppercase mb-3 flex items-center gap-2">
                 <Truck size={14} /> Logística
-              </h4>
+              </h3>
               <div className="space-y-3">
                 <div>
-                  <label className="lbl">Método de Envio</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">
+                    Método de Envio
+                  </label>
                   <input
-                    type="text"
-                    className="ipt"
-                    value={formData.shippingMethod}
-                    onChange={(e) =>
-                      handleChange("shippingMethod", e.target.value)
-                    }
+                    className="w-full p-2 border rounded"
+                    value={formData.shipMethod}
+                    onChange={(e) => update("shipMethod", e.target.value)}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="lbl">Custo Frete (R$)</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      Custo Frete (R$)
+                    </label>
                     <input
-                      type="text"
-                      className="ipt"
-                      value={formData.shippingPrice}
-                      onChange={(e) =>
-                        handleChange("shippingPrice", e.target.value)
-                      }
+                      className="w-full p-2 border rounded"
+                      value={formData.shipPrice}
+                      onChange={(e) => update("shipPrice", e.target.value)}
                     />
                   </div>
                   <div>
-                    <label className="lbl">Rastreio</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      Rastreio
+                    </label>
                     <input
-                      type="text"
-                      className="ipt font-mono text-blue-600"
-                      value={formData.tracking}
-                      onChange={(e) => handleChange("tracking", e.target.value)}
+                      className="w-full p-2 border rounded"
+                      value={formData.shipTracking}
+                      onChange={(e) => update("shipTracking", e.target.value)}
                     />
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <h4 className="text-xs font-bold text-emerald-600 uppercase mb-3 flex items-center gap-2">
+            {/* SEÇÃO FINANCEIRO */}
+            <div className="border rounded-xl p-4 bg-emerald-50 border-emerald-200">
+              <h3 className="font-bold text-emerald-700 text-xs uppercase mb-3 flex items-center gap-2">
                 <CreditCard size={14} /> Financeiro
-              </h4>
+              </h3>
               <div className="space-y-3">
                 <div>
-                  <label className="lbl">Forma Pagamento</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">
+                    Forma Pagamento
+                  </label>
                   <input
-                    type="text"
-                    className="ipt"
-                    placeholder="Ex: PIX, Cartão"
-                    value={formData.paymentMethod}
-                    onChange={(e) =>
-                      handleChange("paymentMethod", e.target.value)
-                    }
+                    className="w-full p-2 border rounded"
+                    value={formData.payMethod}
+                    onChange={(e) => update("payMethod", e.target.value)}
                   />
                 </div>
                 <div>
-                  <label className="lbl">Valor Total (Manual)</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">
+                    Valor Total (Manual)
+                  </label>
                   <input
-                    type="text"
-                    className="ipt font-bold text-emerald-700"
-                    value={formData.totalValueOverride}
-                    onChange={(e) =>
-                      handleChange("totalValueOverride", e.target.value)
-                    }
-                    placeholder="Deixe vazio p/ soma automática"
+                    className="w-full p-2 border rounded font-bold text-emerald-700"
+                    value={formData.payTotal}
+                    onChange={(e) => update("payTotal", e.target.value)}
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
                     * Preencher para forçar valor total diferente da soma dos
@@ -339,43 +367,33 @@ export default function OrderEditModal({
             </div>
           </div>
 
-          {/* OBSERVAÇÕES */}
           <div>
-            <label className="lbl flex items-center gap-1">
-              <FileText size={12} /> Observações do Pedido
+            <label className="text-[10px] font-bold text-slate-500 uppercase">
+              Observações do Pedido
             </label>
             <textarea
-              className="w-full p-3 border rounded-lg text-sm focus:border-blue-500 outline-none h-24 resize-none bg-slate-50"
+              className="w-full p-3 border rounded-lg h-20 resize-none outline-none focus:border-blue-500"
               value={formData.notes}
-              onChange={(e) => handleChange("notes", e.target.value)}
-              placeholder="Detalhes internos..."
+              onChange={(e) => update("notes", e.target.value)}
             />
           </div>
-        </form>
+        </div>
 
-        {/* FOOTER */}
-        <div className="p-4 border-t bg-slate-50 flex justify-end gap-2 shrink-0">
+        {/* Footer */}
+        <div className="p-4 border-t flex justify-end gap-3 bg-slate-50 shrink-0">
           <button
-            type="button"
             onClick={onClose}
-            className="px-5 py-2.5 border rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100 transition-colors"
+            className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-200 rounded-lg text-sm"
           >
             Cancelar
           </button>
           <button
             onClick={handleSubmit}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-200 transition-transform active:scale-95"
+            className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg flex items-center gap-2 text-sm"
           >
-            <Save size={18} /> Salvar Tudo
+            <Save size={18} /> Salvar Alterações
           </button>
         </div>
-
-        {/* ESTILOS LOCAIS PARA LIMPEZA */}
-        <style>{`
-            .lbl { display: block; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }
-            .ipt { width: 100%; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s; background: white; }
-            .ipt:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
-        `}</style>
       </div>
     </div>
   );

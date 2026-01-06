@@ -5,7 +5,7 @@ import {
   Trash2,
   ShieldCheck,
   AlertTriangle,
-  Layers,
+  Layers, // Certifique-se de importar o ícone Layers
   Check,
   X,
 } from "lucide-react";
@@ -22,7 +22,6 @@ const getIsoDate = (val) => {
   if (!val) return "";
   if (val.toDate) return val.toDate().toISOString().split("T")[0];
   if (typeof val === "string" && val.includes("/")) {
-    // Se for DD/MM/AAAA (legado), tenta converter, mas ideal é ISO
     const parts = val.split(" ")[0].split("/");
     if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
   }
@@ -39,16 +38,14 @@ export default function ProductionListView({
   handleMoveStatus,
   findCatalogItem,
   onToggleTransit,
-  onUpdateDate, // <--- NOVA PROP: Função para salvar a data
+  onUpdateDate,
 }) {
-  // Estado local para controlar qual linha está sendo editada
   const [editingDateId, setEditingDateId] = useState(null);
   const [tempDate, setTempDate] = useState("");
 
   const startEditing = (e, order) => {
-    e.stopPropagation(); // Não seleciona a linha
+    e.stopPropagation();
     setEditingDateId(order.id);
-    // Usa a custom ou a created, formatada para o input
     setTempDate(getIsoDate(order.customCreatedAt || order.createdAt));
   };
 
@@ -82,7 +79,6 @@ export default function ProductionListView({
             key={statusId}
             className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
           >
-            {/* Cabeçalho do Grupo */}
             <div
               className={`px-4 py-2 font-bold text-sm flex justify-between items-center ${config.color}`}
             >
@@ -91,7 +87,6 @@ export default function ProductionListView({
               </span>
             </div>
 
-            {/* Tabela */}
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold border-b">
                 <tr>
@@ -139,7 +134,7 @@ export default function ProductionListView({
                         />
                       </td>
 
-                      {/* --- COLUNA DE DATA EDITÁVEL --- */}
+                      {/* DATA */}
                       <td className="px-4 py-3 text-center align-middle">
                         {isEditingDate ? (
                           <div className="flex items-center gap-1 animate-fade-in">
@@ -153,14 +148,12 @@ export default function ProductionListView({
                             <button
                               onClick={(e) => saveDate(e, order.id)}
                               className="bg-green-100 text-green-700 p-1 rounded hover:bg-green-200"
-                              title="Salvar Data"
                             >
                               <Check size={12} />
                             </button>
                             <button
                               onClick={cancelEditing}
                               className="bg-red-100 text-red-700 p-1 rounded hover:bg-red-200"
-                              title="Cancelar"
                             >
                               <X size={12} />
                             </button>
@@ -169,7 +162,6 @@ export default function ProductionListView({
                           <div
                             className="cursor-pointer hover:scale-105 transition-transform relative group"
                             onClick={(e) => startEditing(e, order)}
-                            title="Clique para editar a data de entrada"
                           >
                             <DaysBadge
                               date={order.customCreatedAt || order.createdAt}
@@ -181,24 +173,43 @@ export default function ProductionListView({
                         )}
                       </td>
 
+                      {/* ITEM (AQUI ADICIONAMOS O INDICADOR) */}
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-1">
-                            {order.fromStock && !order.isPE && (
-                              <span className="bg-emerald-700 text-white text-[9px] px-1 rounded font-bold">
-                                E
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {/* 1. Indicador de Estoque Interceptado (NOVO) */}
+                            {order.isInterceptedPE && (
+                              <span
+                                className="bg-orange-100 text-orange-700 text-[9px] px-1.5 py-0.5 rounded font-bold border border-orange-200 flex items-center gap-1"
+                                title="Interceptado da Fábrica de Estoque"
+                              >
+                                <Layers size={10} /> ESTOQUE FÁBRICA
                               </span>
                             )}
-                            {order.isPE && (
+
+                            {/* 2. Indicador de Estoque Físico Antigo (Mantido) */}
+                            {order.fromStock &&
+                              !order.isPE &&
+                              !order.isInterceptedPE && (
+                                <span className="bg-emerald-700 text-white text-[9px] px-1 rounded font-bold">
+                                  E
+                                </span>
+                              )}
+
+                            {/* 3. Indicador de PE Antigo (se ainda usar) */}
+                            {order.isPE && !order.isInterceptedPE && (
                               <span className="bg-orange-500 text-white text-[9px] px-1 rounded font-bold flex items-center gap-0.5">
                                 <Layers size={8} /> PE
                               </span>
                             )}
+
+                            {/* 4. Indicador de Impresso */}
                             {order.printed && (
                               <span className="bg-amber-400 text-amber-900 text-[9px] px-1 rounded font-bold">
                                 I
                               </span>
                             )}
+
                             <span className="font-bold text-blue-600">
                               {order.sku}
                             </span>
@@ -209,6 +220,7 @@ export default function ProductionListView({
                         </div>
                       </td>
 
+                      {/* ESPECIFICAÇÕES */}
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2 text-[10px]">
                           {order.specs?.size && (
@@ -236,7 +248,6 @@ export default function ProductionListView({
                             </span>
                           )}
 
-                          {/* LOTE DA PEDRA */}
                           {order.specs?.stoneBatch && (
                             <span className="bg-blue-50 text-blue-700 border border-blue-100 px-1 rounded font-mono">
                               Lote: {order.specs.stoneBatch}
@@ -258,15 +269,19 @@ export default function ProductionListView({
                         </div>
                       </td>
 
+                      {/* CLIENTE */}
                       <td className="px-4 py-3">
                         <div className="font-bold text-slate-700 text-xs">
-                          {order.order?.customer?.name || "Balcão"}
+                          {order.order?.customer?.name ||
+                            order.customerName ||
+                            "Balcão"}
                         </div>
                         <div className="text-[10px] text-slate-400">
                           {order.order?.number ? `#${order.order.number}` : "-"}
                         </div>
                       </td>
 
+                      {/* STATUS DROPDOWN */}
                       <td className="px-4 py-3 text-center">
                         <select
                           className="text-[10px] p-1 border rounded bg-slate-50 max-w-[120px]"
@@ -283,6 +298,7 @@ export default function ProductionListView({
                         </select>
                       </td>
 
+                      {/* AÇÕES */}
                       <td className="px-4 py-3 text-center flex justify-center gap-2 items-center">
                         <TransitToggle
                           order={order}

@@ -155,6 +155,12 @@ export default function ProductionCard({
                 <Layers size={8} /> PE
               </div>
             )}
+            {item.isInterceptedPE && (
+              <div className="mb-2 bg-orange-50 border border-orange-200 text-orange-800 text-[10px] font-bold px-2 py-1 rounded flex items-center gap-2">
+                <Layers size={12} className="text-orange-600" />
+                <span>ESTOQUE INTERCEPTADO NA FÁBRICA</span>
+              </div>
+            )}
             {order.printed && (
               <div
                 className="bg-amber-400 text-amber-900 text-[8px] font-bold px-1.5 rounded cursor-help"

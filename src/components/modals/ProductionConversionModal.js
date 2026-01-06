@@ -12,10 +12,10 @@ import {
   ShieldCheck,
   PackageCheck,
   Layers,
-  Calendar, // Importei o ícone de calendário
+  ListChecks,
 } from "lucide-react";
 
-// Cores
+// --- CONFIGURAÇÕES ---
 const STONE_COLORS = [
   "VERMELHO",
   "ROSA",
@@ -38,12 +38,30 @@ const STONE_COLORS = [
   "SEM PEDRA",
 ];
 
-// Status para Estoque
-const STOCK_STATUS_OPTIONS = [
-  { id: "GRAVACAO", label: "Gravação" },
-  { id: "MANUTENCAO", label: "Ajuste/manutenção" },
-  { id: "FALTA_BANCA", label: "Falha banca" },
-  { id: "PEDIDO_PRONTO", label: "Pedido Pronto" },
+// --- MAPEAMENTO: FÁBRICA (StockProduction) -> PRODUÇÃO (ProductionTab) ---
+const PE_TO_PRODUCTION_MAP = {
+  pe_solicitado: "SOLICITACAO", // Vai para: AGUARDANDO ANÁLISE
+  pe_imprimindo: "ESTOQUE_IMPRIMINDO", // Vai para: ESTOQUE - IMPRIMINDO
+  pe_fundicao: "ESTOQUE_FUNDIDO", // Vai para: ESTOQUE - FUNDIDO
+  pe_conferencia: "PEDIDO_MODIFICADO", // Vai para: PEDIDO MODIFICADO
+  pe_interceptado: "SOLICITACAO", // Fallback de segurança
+};
+
+// Labels visuais apenas para leitura no card
+const PE_LABELS = {
+  pe_solicitado: "Solicitado",
+  pe_imprimindo: "Imprimindo 3D",
+  pe_fundicao: "Fundidos",
+  pe_conferencia: "Conferência",
+  pe_interceptado: "Já Interceptado",
+};
+
+// Opções Manuais Permitidas (Para Estoque Físico ou Zero)
+const MANUAL_STATUS_OPTIONS = [
+  { value: "SOLICITACAO", label: "AGUARDANDO ANÁLISE" },
+  { value: "GRAVACAO", label: "GRAVAÇÃO" },
+  { value: "FALHA_BANCA", label: "FALHA BANCA" },
+  { value: "MANUTENCAO", label: "AJUSTE/MANUTENÇÃO" },
 ];
 
 export default function ProductionConversionModal({
@@ -64,25 +82,36 @@ export default function ProductionConversionModal({
   const safeAddress = safeShipping.address || {};
   const safeSpecs = safeRes.specs || {};
 
-  // --- 1. LÓGICA DE ESTOQUE INTELIGENTE (CORRIGIDA) ---
+  // --- 1. LÓGICA DE ESTOQUE INTELIGENTE ---
   const stockItem = useMemo(() => {
     if (isEditing || !inventory || inventory.length === 0 || !safeRes.sku)
       return null;
     const targetSku = String(safeRes.sku).trim().toUpperCase();
 
-    // Busca apenas item que bate o SKU E está com status 'in_stock'
-    return inventory.find((i) => {
-      const itemSku = String(i.sku || "")
-        .trim()
-        .toUpperCase();
-      return itemSku === targetSku && i.status === "in_stock";
-    });
+    // Prioridade: 1. Estoque Físico Real -> 2. Estoque Fábrica (PE) Disponível
+    const realStock = inventory.find(
+      (i) =>
+        String(i.sku).trim().toUpperCase() === targetSku &&
+        i.status === "in_stock" &&
+        !i.isPE
+    );
+
+    // Só pega PE se não tiver status de saída ou travado
+    const peStock = inventory.find(
+      (i) =>
+        String(i.sku).trim().toUpperCase() === targetSku &&
+        i.isPE &&
+        i.status !== "pe_interceptado" &&
+        i.status !== "adjusted_out"
+    );
+
+    return realStock || peStock || null;
   }, [inventory, safeRes.sku, isEditing]);
 
   const hasStock = !!stockItem;
   const isPEItem = stockItem?.isPE || false;
 
-  // --- EXTRAÇÃO CATÁLOGO ---
+  // --- 2. EXTRAÇÃO CATÁLOGO ---
   const catalogData = useMemo(() => {
     if (!findCatalogItem || !safeRes.sku) return {};
     const item = findCatalogItem(safeRes.sku);
@@ -92,12 +121,14 @@ export default function ProductionConversionModal({
       material: "MANUAL",
       category: "MANUAL",
     };
+
     if (item && item.tags) {
       try {
         let tagsArray =
           typeof item.tags === "string"
             ? JSON.parse(item.tags.replace(/\\"/g, '"'))
             : item.tags;
+
         if (Array.isArray(tagsArray)) {
           const findTag = (g) =>
             tagsArray.find((t) => t.group === g)?.value || "MANUAL";
@@ -106,7 +137,9 @@ export default function ProductionConversionModal({
           extracted.material = findTag("Material");
           extracted.category = findTag("Categoria");
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn("Erro ao parsear tags", e);
+      }
     }
     return extracted;
   }, [safeRes.sku, findCatalogItem]);
@@ -114,33 +147,38 @@ export default function ProductionConversionModal({
   // --- STATE ---
   const [formData, setFormData] = useState({
     specs: {},
-    order: { customer: {}, payment: {} },
+    order: { customer: {}, payment: {}, notes: "" },
     shipping: { address: {} },
-    initialStatus: "SOLICITACAO",
+    customDate: "",
+    orderNumber: "",
+
+    // Controles
     useStock: false,
-    customDate: "", // NOVO CAMPO DE DATA
+    initialStatus: "SOLICITACAO",
+    isStatusLocked: false,
   });
 
-  // Ativa modo estoque se encontrar item
-  useEffect(() => {
-    if (isOpen && hasStock) {
-      setFormData((prev) => ({
-        ...prev,
-        useStock: true,
-        initialStatus: "GRAVACAO",
-      }));
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        useStock: false,
-        initialStatus: "SOLICITACAO",
-      }));
-    }
-  }, [isOpen, hasStock]);
-
-  // --- POPULATE ---
+  // --- INICIALIZAÇÃO INTELIGENTE ---
   useEffect(() => {
     if (isOpen && reservation) {
+      // 1. Definição de Status Inicial baseado no Estoque
+      let startStatus = "SOLICITACAO";
+      let locked = false;
+      let shouldUseStock = false;
+
+      if (hasStock && stockItem) {
+        shouldUseStock = true;
+        if (stockItem.isPE) {
+          // Fábrica: Herda status mapeado e trava
+          startStatus = PE_TO_PRODUCTION_MAP[stockItem.status] || "SOLICITACAO";
+          locked = true;
+        } else {
+          // Físico: Sugere Gravação
+          startStatus = "GRAVACAO";
+        }
+      }
+
+      // 2. Tratamento de Cores
       let fixedStoneType = safeSpecs.stoneType || "";
       if (fixedStoneType && fixedStoneType.toLowerCase().includes("zircônia"))
         fixedStoneType = "Zircônia";
@@ -164,19 +202,19 @@ export default function ProductionConversionModal({
         }
       }
 
-      // Lógica da Data Inicial (Hoje ou Data da Reserva)
-      const dateRef = safeRes.createdAt?.toDate
-        ? safeRes.createdAt.toDate()
-        : new Date();
-      const dateStr = dateRef.toISOString().split("T")[0]; // Formato YYYY-MM-DD para o input type="date"
+      // 3. Populate State
+      setFormData({
+        useStock: shouldUseStock,
+        initialStatus: startStatus,
+        isStatusLocked: locked,
+        customDate: safeRes.createdAt?.toDate
+          ? safeRes.createdAt.toDate().toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0],
+        orderNumber: safeOrder.number || safeRes.orderNumber || "",
 
-      setFormData((prev) => ({
-        ...prev,
-        customDate: dateStr, // Inicializa com a data
         specs: {
           size: safeSpecs.size || "",
           stoneType: fixedStoneType,
-          stoneBatch: safeSpecs.stoneBatch || "", // NOVO: Lote da Pedra
           stoneColor: targetColor,
           standardColor:
             safeSpecs.standardColor || catalogData.standardColor || "",
@@ -185,12 +223,13 @@ export default function ProductionConversionModal({
           category: safeSpecs.category || catalogData.category || "",
           engraving: safeSpecs.engraving || "",
           finishing: safeSpecs.finishing || "",
+          stoneBatch: safeSpecs.stoneBatch || "",
         },
         order: {
           number: safeOrder.number || "",
-          notes: safeOrder.notes || safeRes.note || "",
+          notes: safeOrder.notes || safeRes.notes || safeRes.note || "",
           customer: {
-            name: safeCustomer.name || "",
+            name: safeCustomer.name || safeRes.customerName || "",
             cpf: safeCustomer.cpf || "",
             email: safeCustomer.email || "",
             phone: safeCustomer.phone || "",
@@ -201,22 +240,50 @@ export default function ProductionConversionModal({
           },
         },
         shipping: {
-          tipoenvio: safeShipping.tipoenvio || "",
+          tipoenvio: safeShipping.tipoenvio || safeShipping.method || "",
           price: safeShipping.price || "",
           tracking: safeShipping.rastreamento || safeShipping.tracking || "",
           address: {
-            destinatario: safeAddress.destinatario || safeCustomer.name || "",
+            destinatario:
+              safeAddress.destinatario ||
+              safeAddress.recipient ||
+              safeCustomer.name ||
+              "",
             street: safeAddress.street || "",
             number: safeAddress.number || "",
             complemento: safeAddress.complemento || "",
             city: safeAddress.city || "",
             statecode: safeAddress.statecode || safeAddress.state || "",
             zip: safeAddress.zip || "",
+            district: safeAddress.district || "",
           },
         },
-      }));
+      });
     }
-  }, [isOpen, reservation, catalogData]);
+  }, [isOpen, reservation, catalogData, hasStock, stockItem]);
+
+  // --- HANDLER DE TOGGLE DE ESTOQUE ---
+  const handleStockToggle = (checked) => {
+    let newStatus = "SOLICITACAO";
+    let newLocked = false;
+
+    if (checked && stockItem) {
+      if (stockItem.isPE) {
+        // Mapeia usando a nova lógica solicitada
+        newStatus = PE_TO_PRODUCTION_MAP[stockItem.status] || "SOLICITACAO";
+        newLocked = true;
+      } else {
+        newStatus = "GRAVACAO";
+      }
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      useStock: checked,
+      initialStatus: newStatus,
+      isStatusLocked: newLocked,
+    }));
+  };
 
   if (!isOpen || !reservation) return null;
 
@@ -239,27 +306,37 @@ export default function ProductionConversionModal({
       onConfirm({ id: safeRes.id, specs: formData.specs });
       return;
     }
+
     const finalData = {
       ...reservation,
       specs: { ...safeSpecs, ...formData.specs },
-      // Passamos a data customizada junto com o pedido
       customCreatedAt: formData.customDate,
       order: {
         ...safeOrder,
         ...formData.order,
+        number: formData.orderNumber,
         customer: { ...safeCustomer, ...formData.order.customer },
         payment: { ...safePayment, ...formData.order.payment },
       },
       shipping: {
         ...safeShipping,
         ...formData.shipping,
-        address: { ...safeAddress, ...formData.shipping.address },
+        method: formData.shipping.tipoenvio,
+        tracking: formData.shipping.tracking,
+        address: {
+          ...safeAddress,
+          ...formData.shipping.address,
+          recipient: formData.shipping.address.destinatario,
+          state: formData.shipping.address.statecode,
+        },
       },
+
       status: formData.useStock ? formData.initialStatus : "SOLICITACAO",
       fromStock: formData.useStock,
       stockItemId: formData.useStock ? stockItem?.id : null,
-      isPE: formData.useStock ? stockItem?.isPE || false : false,
+      isInterceptedPE: formData.useStock ? stockItem?.isPE || false : false,
     };
+
     onConfirm(finalData);
   };
 
@@ -271,6 +348,41 @@ export default function ProductionConversionModal({
     formData.specs.stoneColor.trim().toUpperCase() !==
       formData.specs.standardColor.trim().toUpperCase();
   const isNatural = formData.specs.stoneType === "Natural";
+
+  // --- SELETOR DE STATUS REUTILIZÁVEL ---
+  const StatusSelector = () => (
+    <div className="flex items-center gap-2 bg-white/80 p-1.5 rounded-lg border border-slate-200 shadow-sm ml-auto">
+      <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+        <ListChecks size={12} /> Destino:
+      </label>
+
+      {formData.isStatusLocked ? (
+        <span className="font-bold text-orange-700 text-xs flex items-center gap-1 bg-orange-100 px-2 py-1 rounded border border-orange-200">
+          {/* Traduz a chave para o Label legível das opções manuais se possível */}
+          {MANUAL_STATUS_OPTIONS.find(
+            (opt) => opt.value === formData.initialStatus
+          )?.label || formData.initialStatus.replace(/_/g, " ")}
+          <span className="text-[8px] bg-orange-200 px-1 rounded text-orange-800 opacity-70">
+            AUTO
+          </span>
+        </span>
+      ) : (
+        <select
+          className="font-bold text-slate-700 text-xs bg-transparent outline-none cursor-pointer min-w-[140px]"
+          value={formData.initialStatus}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, initialStatus: e.target.value }))
+          }
+        >
+          {MANUAL_STATUS_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
@@ -342,8 +454,8 @@ export default function ProductionConversionModal({
                     }`}
                   >
                     {isPEItem
-                      ? "O item atual está em produção de estoque, deseja usar?"
-                      : "Temos este item em estoque, selecione uma das opções:"}
+                      ? "Item em fabricação. Deseja interceptar?"
+                      : "Item pronto na prateleira."}
                   </p>
                 </div>
               </div>
@@ -358,12 +470,7 @@ export default function ProductionConversionModal({
                         : "text-emerald-600 focus:ring-emerald-500"
                     }`}
                     checked={formData.useStock}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        useStock: e.target.checked,
-                      }))
-                    }
+                    onChange={(e) => handleStockToggle(e.target.checked)}
                   />
                   <span className="uppercase">
                     Usar {isPEItem ? "PE" : "Estoque"}
@@ -372,25 +479,17 @@ export default function ProductionConversionModal({
 
                 {formData.useStock && (
                   <div className="pl-3 border-l border-slate-200 ml-2">
-                    <select
-                      className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded p-2 font-bold outline-none cursor-pointer hover:bg-slate-100 transition-colors"
-                      value={formData.initialStatus}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          initialStatus: e.target.value,
-                        }))
-                      }
-                    >
-                      {STOCK_STATUS_OPTIONS.map((opt) => (
-                        <option key={opt.id} value={opt.id}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
+                    <StatusSelector />
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* SELETOR MANUAL SE NÃO TIVER ESTOQUE */}
+          {!hasStock && !isEditing && (
+            <div className="flex justify-end mb-2">
+              <StatusSelector />
             </div>
           )}
 
@@ -421,32 +520,29 @@ export default function ProductionConversionModal({
                   onChange={(e) => update("specs", "stoneType", e.target.value)}
                 >
                   <option value="">Selecione...</option>
-                  <option value="Zircônia">Zircônia</option>
+                  <option value="Zirconia">Zircônia</option>
+                  <option value="Moissanite">Moissanite</option>
                   <option value="Natural">Natural</option>
                   <option value="ND">Não Aplica</option>
                 </select>
                 {isNatural && (
                   <div className="flex items-center gap-1 mt-1 text-[9px] font-bold text-blue-600 animate-pulse">
-                    <ShieldCheck size={10} />
-                    <span>Pedra Natural</span>
+                    <ShieldCheck size={10} /> <span>Pedra Natural</span>
                   </div>
                 )}
               </div>
-
-              {/* NOVO CAMPO: LOTE DA PEDRA */}
               <div>
                 <label className="lbl">Lote da Pedra</label>
                 <input
                   type="text"
                   className="ipt"
                   placeholder="Ex: LT-2023"
-                  value={formData.specs.stoneBatch}
+                  value={formData.specs.stoneBatch || ""}
                   onChange={(e) =>
                     update("specs", "stoneBatch", e.target.value)
                   }
                 />
               </div>
-
               <div>
                 <label className="lbl">Cor Escolhida</label>
                 <select
@@ -475,12 +571,10 @@ export default function ProductionConversionModal({
                 </select>
                 {showColorWarning && (
                   <div className="flex items-center gap-1 mt-1 text-[9px] font-bold text-amber-600 animate-pulse">
-                    <AlertTriangle size={10} />
-                    <span>Difere do Padrão</span>
+                    <AlertTriangle size={10} /> <span>Difere do Padrão</span>
                   </div>
                 )}
               </div>
-
               <div>
                 <label className="lbl">Finalização</label>
                 <input
@@ -490,8 +584,7 @@ export default function ProductionConversionModal({
                   onChange={(e) => update("specs", "finishing", e.target.value)}
                 />
               </div>
-
-              <div className="col-span-2 md:col-span-3">
+              <div className="col-span-1 md:col-span-3">
                 <label className="lbl">Gravação</label>
                 <input
                   type="text"
@@ -551,32 +644,31 @@ export default function ProductionConversionModal({
                   </h3>
                   <div className="space-y-3">
                     <div className="grid grid-cols-3 gap-3">
-                      {/* NOVO CAMPO: DATA DE ENTRADA */}
                       <div className="col-span-1">
-                        <label className="lbl flex items-center gap-1">
-                          <Calendar size={10} /> Data Entrada
-                        </label>
-                        <input
-                          type="date"
-                          className="ipt font-bold text-blue-700"
-                          value={formData.customDate}
-                          onChange={(e) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              customDate: e.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-
-                      <div className="col-span-2">
                         <label className="lbl">Nº Pedido</label>
                         <input
                           type="text"
                           className="ipt"
-                          value={formData.order.number}
+                          value={formData.orderNumber}
                           onChange={(e) =>
-                            update("order", "number", e.target.value)
+                            setFormData((p) => ({
+                              ...p,
+                              orderNumber: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="lbl">Data Entrada</label>
+                        <input
+                          type="date"
+                          className="ipt"
+                          value={formData.customDate}
+                          onChange={(e) =>
+                            setFormData((p) => ({
+                              ...p,
+                              customDate: e.target.value,
+                            }))
                           }
                         />
                       </div>
@@ -605,7 +697,7 @@ export default function ProductionConversionModal({
                         />
                       </div>
                       <div>
-                        <label className="lbl">Telefone / Zap</label>
+                        <label className="lbl">Zap</label>
                         <input
                           type="text"
                           className="ipt"
@@ -760,8 +852,8 @@ export default function ProductionConversionModal({
                         }
                       />
                     </div>
-                    <div className="col-span-3">
-                      <label className="lbl">Rua / Logradouro</label>
+                    <div className="col-span-2">
+                      <label className="lbl">Rua</label>
                       <input
                         type="text"
                         className="ipt"
@@ -788,6 +880,22 @@ export default function ProductionConversionModal({
                             "address",
                             e.target.value,
                             "number"
+                          )
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="lbl">Bairro</label>
+                      <input
+                        type="text"
+                        className="ipt"
+                        value={formData.shipping.address.district}
+                        onChange={(e) =>
+                          update(
+                            "shipping",
+                            "address",
+                            e.target.value,
+                            "district"
                           )
                         }
                       />
@@ -842,6 +950,8 @@ export default function ProductionConversionModal({
             {isEditing ? "Salvar Alterações" : "Confirmar Ordem"}
           </button>
         </div>
+
+        {/* ESTILOS ORIGINAIS PRESERVADOS */}
         <style>{`.lbl { display: block; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 4px; } .ipt { width: 100%; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s; } .ipt:focus { border-color: #a855f7; }`}</style>
       </div>
     </div>

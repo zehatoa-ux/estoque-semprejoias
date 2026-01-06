@@ -28,12 +28,13 @@ const TAB_ICONS = {
 // Mapeamento de Labels
 export const TAB_LABELS = {
   stock: "ESTOQUE",
-  conference: "CONFERÊNCIA",
   reservations: "RESERVAS",
   production: "PRODUÇÃO",
   orders: "PEDIDOS LOG.",
-  sales: "BAIXA",
+  stock_production: "FÁBRICA ESTOQUE",
   reports: "RELATÓRIOS",
+  conference: "CONFERÊNCIA",
+  sales: "BAIXA",
   config: "CONFIG",
 };
 

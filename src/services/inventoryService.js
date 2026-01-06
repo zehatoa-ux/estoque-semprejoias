@@ -10,15 +10,15 @@ import {
   limit,
   orderBy,
   doc,
+  addDoc, // Importante para criar a reserva
 } from "firebase/firestore";
 
 // Caminho centralizado
 const COLLECTION_PATH = `artifacts/${APP_COLLECTION_ID}/public/data/inventory_items`;
+const RESERVATION_PATH = `artifacts/${APP_COLLECTION_ID}/public/data/reservations`; // Caminho das reservas
 
 export const inventoryService = {
-  // ... (mantenha adjustQuantity e deleteItem como estavam) ...
-
-  // Função para importar itens da Conferência (Buffer)
+  // --- 1. IMPORTAR ITENS (Conferência) ---
   async importItems(items, userName = "Conferência") {
     if (!items || items.length === 0) return 0;
 
@@ -26,15 +26,13 @@ export const inventoryService = {
     const collectionRef = collection(db, COLLECTION_PATH);
 
     items.forEach((item) => {
-      // Cria um novo documento com ID automático
       const newDocRef = doc(collectionRef);
-
       batch.set(newDocRef, {
         sku: item.sku,
         baseSku: item.baseSku || item.sku,
         status: "in_stock",
         addedBy: userName,
-        timestamp: serverTimestamp(), // Hora do servidor
+        timestamp: serverTimestamp(),
         dateIn: item.dateIn || new Date().toLocaleString("pt-BR"),
         dateOut: null,
         source: "conference_scan",
@@ -44,7 +42,8 @@ export const inventoryService = {
     await batch.commit();
     return items.length;
   },
-  // Função robusta de ajuste (Adicionar ou Remover)
+
+  // --- 2. AJUSTAR ESTOQUE (Adicionar/Remover manual) ---
   async adjustQuantity(sku, delta, userName = "Sistema") {
     const batch = writeBatch(db);
     const collectionRef = collection(db, COLLECTION_PATH);
@@ -68,7 +67,7 @@ export const inventoryService = {
         collectionRef,
         where("sku", "==", sku),
         where("status", "==", "in_stock"),
-        orderBy("timestamp", "asc"), // FIFO: Tira os mais antigos primeiro
+        orderBy("timestamp", "asc"),
         limit(qtyToRemove)
       );
 
@@ -87,19 +86,17 @@ export const inventoryService = {
     await batch.commit();
   },
 
-  // Função de Venda em Lote (Substitui executeBatchSales do App.js)
+  // --- 3. VENDA EM LOTE ---
   async sellItems(skuList, userName = "Venda") {
     if (!skuList || skuList.length === 0) return;
 
     const batch = writeBatch(db);
     const collectionRef = collection(db, COLLECTION_PATH);
 
-    // Agrupa contagem: { "ANEL-01": 2, "BRINCO-02": 1 }
     const counts = {};
     skuList.forEach((sku) => (counts[sku] = (counts[sku] || 0) + 1));
 
     for (const [sku, qty] of Object.entries(counts)) {
-      // Busca X itens disponíveis deste SKU no banco
       const q = query(
         collectionRef,
         where("sku", "==", sku),
@@ -110,16 +107,12 @@ export const inventoryService = {
       const snapshot = await getDocs(q);
 
       if (snapshot.size < qty) {
-        console.warn(
-          `Estoque insuficiente para ${sku}. Solicitado: ${qty}, Disponível: ${snapshot.size}`
-        );
-        // Opcional: Lançar erro ou vender apenas o que tem.
-        // Aqui vendemos o que tem para não travar o lote todo.
+        console.warn(`Estoque insuficiente para ${sku}.`);
       }
 
       snapshot.docs.forEach((docSnap) => {
         batch.update(docSnap.ref, {
-          status: "sold", // Status de venda
+          status: "sold",
           soldBy: userName,
           soldTimestamp: serverTimestamp(),
           dateOut: new Date().toLocaleString("pt-BR"),
@@ -128,6 +121,44 @@ export const inventoryService = {
     }
 
     await batch.commit();
-    return skuList.length; // Retorna quantos itens tentamos vender
+    return skuList.length;
+  },
+
+  // --- 4. CRIAR RESERVA (A FUNÇÃO QUE FALTAVA) ---
+  // --- 4. CRIAR RESERVA (RETROCOMPATÍVEL) ---
+  async createReservation(sku, quantity, userName, note, customerName) {
+    const reservationsRef = collection(db, RESERVATION_PATH);
+
+    // TRUQUE DE COMPATIBILIDADE:
+    // Se a aba de Reservas antiga só mostra "notes", vamos garantir que o nome
+    // do cliente apareça lá também, formatado como "Cliente: Obs".
+    let legacyNote = note || "";
+    if (customerName) {
+      // Se já tiver uma obs, adiciona o nome antes. Se não, vira só o nome.
+      legacyNote = legacyNote
+        ? `${customerName} - ${legacyNote}`
+        : customerName;
+    }
+
+    await addDoc(reservationsRef, {
+      sku: sku,
+      quantity: Number(quantity),
+      createdBy: userName,
+      createdAt: serverTimestamp(),
+
+      // Campo antigo (para visualização na lista atual)
+      notes: legacyNote,
+
+      // Campos novos (para a inteligência de conversão de pedido)
+      customerName: customerName,
+      order: {
+        customer: {
+          name: customerName || "Cliente Reserva",
+        },
+      },
+
+      status: "pending",
+      isManualReservation: true,
+    });
   },
 };

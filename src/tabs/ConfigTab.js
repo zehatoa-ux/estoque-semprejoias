@@ -11,6 +11,9 @@ import {
   Square,
   Mail,
   Phone,
+  Wrench,
+  ShieldAlert,
+  Flame, // Ícone para o Wipe
 } from "lucide-react";
 import {
   collection,
@@ -21,6 +24,9 @@ import {
   onSnapshot,
   query,
   orderBy,
+  getDocs,
+  writeBatch,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { APP_COLLECTION_ID } from "../config/constants";
@@ -37,17 +43,20 @@ const AVAILABLE_MODULES = [
   { id: "config", label: "Configurações (Admin)" },
 ];
 
+const DATA_PATH = `artifacts/${APP_COLLECTION_ID}/public/data`;
+
 export default function ConfigTab({ handleResetStock }) {
   const [users, setUsers] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
+  const [loadingAction, setLoadingAction] = useState(false); // Loading global para ações admin
 
   // Form State
   const [formData, setFormData] = useState({
     id: null,
     name: "",
     username: "",
-    email: "", // Novo
-    phone: "", // Novo
+    email: "",
+    phone: "",
     password: "",
     role: "user",
     access: [],
@@ -65,13 +74,103 @@ export default function ConfigTab({ handleResetStock }) {
     return () => unsub();
   }, []);
 
+  // --- FERRAMENTAS ADMIN (NOVAS) ---
+
+  // 1. CORRIGIR DADOS LEGADOS (Adiciona archived: false)
+  const handleFixLegacyData = async () => {
+    if (
+      !window.confirm(
+        "Isso vai varrer todos os pedidos antigos e adicionar 'archived: false' para que apareçam nas listas. Continuar?"
+      )
+    )
+      return;
+
+    setLoadingAction(true);
+    try {
+      const batch = writeBatch(db);
+      let count = 0;
+
+      const ref = collection(db, `${DATA_PATH}/production_orders`);
+      const snapshot = await getDocs(ref);
+
+      snapshot.docs.forEach((document) => {
+        const data = document.data();
+        // Se não tiver o campo 'archived', adicionamos false
+        if (data.archived === undefined) {
+          batch.update(document.ref, {
+            archived: false,
+          });
+          count++;
+        }
+      });
+
+      if (count > 0) {
+        await batch.commit();
+        alert(
+          `SUCESSO! ${count} pedidos antigos foram corrigidos e devem aparecer agora.`
+        );
+        window.location.reload();
+      } else {
+        alert("Nenhum pedido precisava de correção.");
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao corrigir: " + error.message);
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  // 2. WIPE NUCLEAR (Limpar tudo)
+  const handleWipeData = async () => {
+    const confirmText = prompt(
+      "PARA APAGAR TUDO (PEDIDOS, RESERVAS, ESTOQUE), DIGITE: DELETAR TUDO"
+    );
+    if (confirmText !== "DELETAR TUDO") return alert("Ação cancelada.");
+
+    setLoadingAction(true);
+    try {
+      const batch = writeBatch(db);
+      let count = 0;
+
+      const collectionsToWipe = [
+        "production_orders",
+        "reservations",
+        "inventory_items",
+      ];
+
+      for (const colName of collectionsToWipe) {
+        const ref = collection(db, `${DATA_PATH}/${colName}`);
+        const snapshot = await getDocs(ref);
+
+        snapshot.docs.forEach((document) => {
+          batch.delete(doc(db, `${DATA_PATH}/${colName}`, document.id));
+          count++;
+        });
+      }
+
+      await batch.commit();
+      alert(
+        `WIPE CONCLUÍDO! ${count} registros apagados. O sistema está zerado.`
+      );
+      window.location.reload();
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao limpar: " + error.message);
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  // --- CRUD USUÁRIOS ---
+
   const handleEdit = (user) => {
     setFormData({
       id: user.id,
       name: user.name || "",
       username: user.username || "",
-      email: user.email || "", // Novo
-      phone: user.phone || "", // Novo
+      email: user.email || "",
+      phone: user.phone || "",
       password: "",
       role: user.role || "user",
       access: user.access || [],
@@ -108,8 +207,8 @@ export default function ConfigTab({ handleResetStock }) {
       const payload = {
         name: formData.name,
         username: formData.username,
-        email: formData.email, // Salva no banco
-        phone: formData.phone, // Salva no banco
+        email: formData.email,
+        phone: formData.phone,
         role: formData.role,
         access: formData.access,
       };
@@ -167,29 +266,73 @@ export default function ConfigTab({ handleResetStock }) {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-10">
-      {/* SEÇÃO DE SISTEMA (PERIGO) */}
+      {/* SEÇÃO DE SISTEMA (PERIGO & MANUTENÇÃO) */}
       <div className="bg-white p-6 rounded-xl border border-red-100 shadow-sm">
         <h3 className="text-lg font-bold text-red-700 flex items-center gap-2 mb-4">
-          <AlertTriangle size={20} /> Zona de Perigo
+          <AlertTriangle size={20} /> Zona de Manutenção & Perigo
         </h3>
-        <div className="flex items-center justify-between bg-red-50 p-4 rounded-lg border border-red-200">
-          <div>
-            <h4 className="font-bold text-red-900">Resetar Estoque</h4>
-            <p className="text-xs text-red-700">
-              Apaga todos os itens com status "in_stock". Não afeta histórico de
-              vendas.
-            </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* 1. RESETAR ESTOQUE (Existente) */}
+          <div className="bg-red-50 p-4 rounded-lg border border-red-200 flex flex-col justify-between gap-3">
+            <div>
+              <h4 className="font-bold text-red-900 flex items-center gap-2">
+                <RefreshCw size={16} /> Resetar Estoque
+              </h4>
+              <p className="text-xs text-red-700 mt-1">
+                Apaga itens "in_stock". Mantém vendas.
+              </p>
+            </div>
+            <button
+              onClick={handleResetStock}
+              disabled={loadingAction}
+              className="w-full bg-white border border-red-300 text-red-700 px-3 py-2 rounded-lg text-xs font-bold hover:bg-red-600 hover:text-white transition-colors"
+            >
+              Executar Reset
+            </button>
           </div>
-          <button
-            onClick={handleResetStock}
-            className="bg-white border border-red-300 text-red-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-600 hover:text-white transition-colors"
-          >
-            Executar Reset
-          </button>
+
+          {/* 2. CORRIGIR LEGADO (Novo) */}
+          <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 flex flex-col justify-between gap-3">
+            <div>
+              <h4 className="font-bold text-blue-900 flex items-center gap-2">
+                <Wrench size={16} /> Corrigir Legado
+              </h4>
+              <p className="text-xs text-blue-700 mt-1">
+                Faz pedidos antigos aparecerem nas listas.
+              </p>
+            </div>
+            <button
+              onClick={handleFixLegacyData}
+              disabled={loadingAction}
+              className="w-full bg-white border border-blue-300 text-blue-700 px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-600 hover:text-white transition-colors"
+            >
+              {loadingAction ? "Processando..." : "Rodar Correção"}
+            </button>
+          </div>
+
+          {/* 3. WIPE TOTAL (Novo) */}
+          <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col justify-between gap-3">
+            <div>
+              <h4 className="font-bold text-white flex items-center gap-2">
+                <Flame size={16} className="text-orange-500" /> WIPE TOTAL
+              </h4>
+              <p className="text-xs text-slate-400 mt-1">
+                Apaga TUDO (Estoque, Pedidos, Reservas). Cuidado!
+              </p>
+            </div>
+            <button
+              onClick={handleWipeData}
+              disabled={loadingAction}
+              className="w-full bg-red-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-lg border border-red-500"
+            >
+              {loadingAction ? "Apagando..." : "DELETAR BANCO"}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* SEÇÃO DE USUÁRIOS */}
+      {/* SEÇÃO DE USUÁRIOS (MANTIDA IGUAL) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b bg-slate-50 flex justify-between items-center">
           <div>

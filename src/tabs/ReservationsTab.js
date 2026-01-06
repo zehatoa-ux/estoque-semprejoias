@@ -43,7 +43,8 @@ export default function ReservationsTab({
   setResQty,
   resNote,
   setResNote,
-  handleCreateReservation, // Mantido do App.js por enquanto (pode ser migrado depois)
+  handleCreateReservation,
+  onConvert, // Mantido do App.js por enquanto (pode ser migrado depois)
 }) {
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");

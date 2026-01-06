@@ -22,7 +22,6 @@ const getOrderRef = (id) => doc(db, ...COLLECTION_PATH, id);
 
 export const ordersService = {
   // --- 1. MUDAR STATUS LOGÍSTICO (EM LOTE) ---
-  // Substitui Linha 99
   async updateLogisticsStatusBatch(ids, newStatus) {
     const batch = writeBatch(db);
     ids.forEach((id) => {
@@ -33,7 +32,6 @@ export const ordersService = {
   },
 
   // --- 2. MUDAR STATUS DE ITEM INDIVIDUAL ---
-  // Substitui Linha 116 (handleItemStatusChange)
   async updateItemStatus(itemId, newStatus) {
     const ref = getOrderRef(itemId);
     await updateDoc(ref, {
@@ -43,7 +41,7 @@ export const ordersService = {
   },
 
   // --- 3. DELETAR PEDIDO (EM LOTE) ---
-  // Substitui Linha 137
+  // CUIDADO: Isso apaga fisicamente. Use archiveOrderBatch preferencialmente.
   async deleteOrderBatch(ids) {
     const batch = writeBatch(db);
     ids.forEach((id) => {
@@ -54,7 +52,8 @@ export const ordersService = {
   },
 
   // --- 4. ARQUIVAR PEDIDO (EM LOTE) ---
-  // Substitui Linha 116 (handleArchiveOrder)
+  // Ao marcar archived: true, ele deve sumir de TODAS as abas (Produção e Logística)
+  // desde que as abas tenham o filtro where("archived", "!=", true)
   async archiveOrderBatch(ids) {
     const batch = writeBatch(db);
     ids.forEach((id) => {
@@ -62,20 +61,32 @@ export const ordersService = {
       batch.update(ref, {
         archived: true,
         archivedAt: serverTimestamp(),
+        // Opcional: status: "ARQUIVADO" // Se quiser mudar o status do kanban também
+      });
+    });
+    await batch.commit();
+  },
+
+  // --- 4.1. DESARQUIVAR (NOVO - ÚTIL PARA CORREÇÕES) ---
+  async unarchiveOrderBatch(ids) {
+    const batch = writeBatch(db);
+    ids.forEach((id) => {
+      const ref = getOrderRef(id);
+      batch.update(ref, {
+        archived: false,
+        unarchivedAt: serverTimestamp(),
       });
     });
     await batch.commit();
   },
 
   // --- 5. ATUALIZAR DADOS DO PEDIDO (EDITZÃO GIGANTE) ---
-  // Substitui Linha 119
   async updateOrderDetailsBatch(items, newData) {
     const batch = writeBatch(db);
 
     items.forEach((item) => {
       const ref = getOrderRef(item.id);
 
-      // Mapeamento dos campos
       const updateData = {
         "order.number": newData.orderNumber,
         "order.notes": newData.notes,
@@ -111,7 +122,6 @@ export const ordersService = {
   },
 
   // --- 6. SALVAR EDIÇÃO DE ITEM (SPECS) ---
-  // Substitui Linha 267
   async updateItemSpecs(itemId, newSpecs) {
     const ref = getOrderRef(itemId);
     await updateDoc(ref, {
@@ -123,16 +133,12 @@ export const ordersService = {
   },
 
   // --- 7. MOVER ITEM DE PEDIDO ---
-  // Substitui Linha 292
   async moveItemToOrder(itemId, targetOrderData) {
     const ref = getOrderRef(itemId);
 
-    // 🛡️ PROTEÇÃO: Garante que nunca seja undefined
-    // Tenta ler .orderNumber, se não tiver tenta .number, se não tiver usa "AVULSO"
     const safeOrderNumber =
       targetOrderData.orderNumber || targetOrderData.number || "AVULSO";
 
-    // Tenta ler .customerName, se não tiver tenta .name, se não tiver usa "Cliente Balcão"
     const safeCustomerName =
       targetOrderData.customerName || targetOrderData.name || "Cliente Balcão";
 
@@ -145,7 +151,6 @@ export const ordersService = {
   },
 
   // --- 8. MARCAR CERTIFICADOS COMO IMPRESSOS ---
-  // Substitui Linha 326
   async markCertificatesPrinted(itemsToPrint) {
     const batch = writeBatch(db);
     itemsToPrint.forEach((item) => {

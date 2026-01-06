@@ -60,17 +60,7 @@ import { useCatalog } from "./hooks/useCatalog";
 import StockTab from "./tabs/StockTab";
 import { useInventory } from "./hooks/useInventory";
 import { inventoryService } from "./services/inventoryService";
-
-const TAB_LABELS = {
-  stock: "ESTOQUE",
-  conference: "CONFERÊNCIA",
-  reservations: "RESERVAS",
-  production: "PRODUÇÃO",
-  orders: "PEDIDOS LOG.", // <--- MUDAMOS PARA CÁ (LOGÍSTICA AO LADO DA FÁBRICA)
-  sales: "BAIXA",
-  reports: "RELATÓRIOS",
-  config: "CONFIG",
-};
+import Layout from "./components/layout/Layout";
 
 // Componente Wrapper para injetar o AuthProvider
 export default function AppWrapper() {
@@ -574,6 +564,7 @@ function InventorySystem() {
   };
 
   // --- RENDER ---
+  // ... (Login Check) ...
   if (!user)
     return (
       <LoginScreen
@@ -583,8 +574,16 @@ function InventorySystem() {
       />
     );
 
+  // --- NOVO RETURN COM LAYOUT ---
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans relative">
+    <Layout
+      user={user}
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+      hasAccess={hasAccess}
+      logout={logout}
+    >
+      {/* MODAIS GLOBAIS (Ficam aqui dentro para o Contexto funcionar se precisar, ou fora do Layout se forem absolutos) */}
       <ConflictModal
         data={conflictData}
         onCancel={() => setConflictData(null)}
@@ -592,95 +591,27 @@ function InventorySystem() {
         onConfirmSafe={(safeList) => executeBatchSales(safeList)}
       />
 
-      <header className="bg-slate-900 text-white p-4 shadow-lg sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className="h-10 w-10 bg-white rounded-lg flex items-center justify-center overflow-hidden">
-              <img
-                src="https://cdn.iset.io/assets/34692/imagens/mkt.png"
-                alt="Logo"
-                className="w-full h-full object-contain"
-              />
-            </div>
-            <div className="flex-1">
-              <h1 className="text-xl font-bold">
-                GESTAO Sempre Joias Versao 0.96
-              </h1>
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span>
-                  Olá, <strong className="text-white">{user.name}</strong>
-                </span>
-                {user.role === "master" && (
-                  <span className="bg-yellow-500 text-black px-1 rounded text-[10px] font-bold">
-                    MASTER
-                  </span>
-                )}
-              </div>
-            </div>
-            <button onClick={logout} className="md:hidden text-slate-400">
-              <LogOut size={20} />
-            </button>
-          </div>
-          <div className="flex gap-4 text-sm w-full md:w-auto items-center justify-end">
-            <button
-              onClick={logout}
-              className="hidden md:block text-slate-400 hover:text-white ml-2"
-            >
-              <LogOut size={20} />
-            </button>
-          </div>
+      {notification && (
+        <div
+          className={`fixed top-4 right-4 z-[60] p-4 rounded-lg shadow-xl text-white animate-slide-in flex items-center gap-3 ${
+            notification.type === "error" ? "bg-red-500" : "bg-emerald-600"
+          }`}
+        >
+          {notification.type === "error" ? (
+            <AlertCircle size={24} />
+          ) : (
+            <CheckCircle size={24} />
+          )}
+          <span className="font-medium text-sm">{notification.message}</span>
         </div>
-      </header>
+      )}
 
-      <div className="bg-white border-b sticky top-[76px] z-10 shadow-sm">
-        <div className="max-w-6xl mx-auto flex overflow-x-auto">
-          {Object.keys(TAB_LABELS).map((tab) => {
-            // CONDICIONAL DE ACESSO: Só mostra a aba se tem permissão
-            if (!hasAccess(tab)) return null;
-            return (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 min-w-[100px] py-4 text-sm font-medium border-b-2 flex justify-center gap-2 uppercase ${
-                  activeTab === tab
-                    ? tab === "config"
-                      ? "border-red-500 text-red-600"
-                      : "border-blue-600 text-blue-600"
-                    : "border-transparent text-slate-500"
-                }`}
-              >
-                {tab === "stock" && <ClipboardList size={18} />}
-                {tab === "conference" && <Barcode size={18} />}
-                {tab === "reservations" && <Bookmark size={18} />}
-                {tab === "production" && <Factory size={18} />}
-                {tab === "orders" && <Truck size={18} />}
-                {tab === "sales" && <Upload size={18} />}
-                {tab === "reports" && <BarChart2 size={18} />}
-                {tab === "config" && <Settings size={18} />}
-                {TAB_LABELS[tab]}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      {/* CONTEÚDO DAS ABAS */}
+      {/* Note que removemos a max-w-6xl para ocupar 100% como você pediu */}
 
-      <main className="max-w-6xl mx-auto p-4 md:p-6 pb-20">
-        {notification && (
-          <div
-            className={`fixed top-28 right-4 z-50 p-4 rounded-lg shadow-xl text-white animate-slide-in flex items-center gap-3 ${
-              notification.type === "error" ? "bg-red-500" : "bg-emerald-600"
-            }`}
-          >
-            {notification.type === "error" ? (
-              <AlertCircle size={24} />
-            ) : (
-              <CheckCircle size={24} />
-            )}
-            <span className="font-medium text-sm">{notification.message}</span>
-          </div>
-        )}
-
-        {/* ABA ESTOQUE (Mantida no App.js por enquanto) */}
+      <div className="space-y-4">
+        {" "}
+        {/* Container genérico para espaçamento */}
         {activeTab === "stock" && hasAccess("stock") && (
           <StockTab
             inventory={inventory}
@@ -712,7 +643,6 @@ function InventorySystem() {
             db={db}
           />
         )}
-
         {activeTab === "reservations" && hasAccess("reservations") && (
           <ReservationsTab
             resSku={resSku}
@@ -738,12 +668,9 @@ function InventorySystem() {
             inventory={inventory}
           />
         )}
-
-        {/* --- NOVA ABA DE PRODUÇÃO --- */}
         {activeTab === "production" && hasAccess("production") && (
           <ProductionTab user={user} findCatalogItem={findCatalogItem} />
         )}
-
         {activeTab === "sales" && hasAccess("sales") && (
           <SalesTab
             salesInput={salesInput}
@@ -751,7 +678,6 @@ function InventorySystem() {
             processSales={processSales}
           />
         )}
-
         {activeTab === "reports" && hasAccess("reports") && (
           <ReportsTab
             reportStartDate={reportStartDate}
@@ -770,11 +696,10 @@ function InventorySystem() {
         {activeTab === "orders" && hasAccess("production") && (
           <OrdersTab findCatalogItem={findCatalogItem} />
         )}
-
         {activeTab === "config" && hasAccess("config") && (
           <ConfigTab handleResetStock={handleResetStock} />
         )}
-      </main>
-    </div>
+      </div>
+    </Layout>
   );
 }

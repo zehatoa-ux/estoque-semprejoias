@@ -85,7 +85,7 @@ export default function Sidebar({
           <div className="flex items-center gap-3 w-full">
             <div className="h-10 w-10 min-w-[2.5rem] bg-white rounded flex items-center justify-center overflow-hidden">
               <img
-                src="https://cdn.iset.io/assets/34692/imagens/mkt.png"
+                src="https://www.semprejoias.com.br/favicon/34692/sjoiasfav.png"
                 alt="Logo"
                 className="w-full h-full object-contain"
               />
@@ -103,7 +103,7 @@ export default function Sidebar({
             >
               <h1 className="font-bold text-sm leading-tight">GESTÃO</h1>
               <span className="text-[10px] text-slate-400">
-                Sempre Joias v0.96
+                Sempre Joias v0.97
               </span>
             </div>
           </div>

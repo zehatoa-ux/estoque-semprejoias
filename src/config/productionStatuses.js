@@ -71,7 +71,10 @@ export const PRODUCTION_STATUS_CONFIG = {
     label: "ENVIADO",
     color: "bg-stone-500 text-white border-stone-600",
   },
-  QUALIDADE: { label: "Q", color: "bg-blue-700 text-white border-blue-800" },
+  INTERCEPTADO_ESTOQUE: {
+    label: "INTERCEPTADO DO ESTOQUE",
+    color: "bg-blue-700 text-white border-blue-800",
+  },
   BANCA: { label: "BANCA", color: "bg-lime-500 text-lime-900 border-lime-600" },
   MANUTENCAO: {
     label: "AJUSTE/MANUTENÇÃO",
@@ -86,23 +89,25 @@ export const PRODUCTION_STATUS_CONFIG = {
 // Ordem do Kanban (Usado na Produção)
 export const KANBAN_ORDER = [
   "PEDIDO_MODIFICADO",
-  "MODELAGEM",
+
   "GRAVACAO",
   "MANUTENCAO",
   "FALTA_BANCA",
+  "VERIFICAR",
   "SOLICITACAO",
   "IMPRIMIR",
   "IMPRIMINDO",
-  "ESTOQUE_IMPRIMINDO",
   "CURA",
   "FUNDICAO",
+  "INTERCEPTADO_ESTOQUE",
+  "ESTOQUE_IMPRIMINDO",
   "ESTOQUE_FUNDIDO",
   "BANCA",
   "POLIMENTO",
   "RESINA_FINALIZACAO",
-  "VERIFICAR",
   "PEDIDO_PRONTO",
   "CANCELADO",
+  "MODELAGEM",
 ];
 
 export const DAYS_COLUMNS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];

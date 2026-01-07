@@ -1,5 +1,3 @@
-// src/utils/printFormatter.js
-
 export function formatProductionTicket(orders) {
   let content = "";
 
@@ -8,6 +6,11 @@ export function formatProductionTicket(orders) {
     const dateSimple = order.dateStr ? order.dateStr.split(" ")[0] : "-";
     const orderNum = order.order?.number || "-";
     const sku = order.sku || "-";
+
+    // --- NOVO: Lógica para pegar o nome do Cliente ---
+    // Tenta pegar da raiz (novo service) ou do objeto order (legado)
+    const customerName =
+      order.customerName || order.order?.customer?.name || "ND";
 
     // Specs (com fallback para "-")
     const size = order.specs?.size || "-";
@@ -21,13 +24,14 @@ export function formatProductionTicket(orders) {
 
     // Montagem do Layout
     content += "--------------------------\n";
-    content += `Data: ${dateSimple}\nPedido: ${orderNum}\nSKU: ${sku}\n`;
+    // Adicionei \nCliente: ${customerName} aqui na linha de baixo
+    content += `Data: ${dateSimple}\nPedido: ${orderNum}\nCliente: ${customerName}\nSKU: ${sku}\n`;
     content += "--------------------------\n";
     content += `Aro: ${size}\nPedra: ${stone}\nCor: ${color}\nBanho: ${finish}\n`;
     content += "--------------------------\n";
     content += `GRAV: ${engraving}\nTipo: ${type}\nMat: ${material}\nCat: ${category}\n`;
     content +=
-      "--------------------------\nF\n--------------------------\n\n\n";
+      "-------------------------\nSUBLISMITH\n-------------------------\n\n\n";
   });
 
   return content;

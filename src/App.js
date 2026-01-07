@@ -576,109 +576,6 @@ function InventorySystem() {
       />
     );
 
-  // --- 5. O "COMMIT" FINAL: CONVERTER RESERVA EM PEDIDO ---
-  // --- DENTRO DO src/App.js ---
-
-  const handleConfirmConversion = async (finalData) => {
-    if (!db || !user) return;
-
-    // Feedback visual imediato
-    showNotification("Processando conversão...", "info");
-
-    try {
-      const batch = writeBatch(db);
-
-      // 1. CRIAR O PEDIDO DE PRODUÇÃO
-      const ordersRef = collection(
-        db,
-        "artifacts",
-        appId,
-        "public",
-        "data",
-        "production_orders"
-      );
-      const newOrderRef = doc(ordersRef);
-
-      const orderPayload = {
-        orderNumber:
-          finalData.order.number || "AUTO-" + Date.now().toString().slice(-6),
-        sku: finalData.sku,
-        quantity: 1,
-        status: finalData.status, // SOLICITACAO, FUNDICAO, etc.
-
-        // Flags IMPORTANTES
-        isInterceptedPE: finalData.isInterceptedPE || false,
-        fromStock: finalData.fromStock || false,
-        stockItemId: finalData.stockItemId || null,
-
-        // Dados do Cliente e Specs
-        customerName: finalData.order.customer.name,
-        specs: finalData.specs,
-        order: finalData.order,
-        shipping: finalData.shipping,
-
-        createdAt: serverTimestamp(),
-        createdBy: user.name,
-      };
-
-      batch.set(newOrderRef, orderPayload);
-
-      // 2. EXECUTAR AÇÃO NO ESTOQUE (Interceptar ou Baixar)
-      if (finalData.stockItemId) {
-        const itemRef = doc(
-          db,
-          "artifacts",
-          appId,
-          "public",
-          "data",
-          "inventory_items",
-          finalData.stockItemId
-        );
-
-        if (finalData.isInterceptedPE) {
-          // CASO A: Interceptar da Fábrica
-          // Atualizamos direto no batch para garantir atomicidade
-          batch.update(itemRef, {
-            status: "pe_interceptado", // O STATUS QUE VOCÊ QUER VER
-            isPE: true,
-            interceptedAt: serverTimestamp(),
-            linkedOrderNumber: orderPayload.orderNumber,
-            linkedCustomer: orderPayload.customerName,
-          });
-        } else if (finalData.fromStock) {
-          // CASO B: Baixar do Estoque Físico
-          batch.update(itemRef, {
-            status: "adjusted_out", // Ou "sold" - sai da lista de disponíveis
-            outTimestamp: serverTimestamp(),
-            removedBy: user.name,
-            reason: "converted_to_order",
-          });
-        }
-      }
-
-      // 3. DELETAR A RESERVA ORIGINAL
-      if (finalData.id) {
-        const resRef = doc(
-          db,
-          "artifacts",
-          appId,
-          "public",
-          "data",
-          "reservations",
-          finalData.id
-        );
-        batch.delete(resRef);
-      }
-
-      // 4. COMMIT (Gravar tudo de uma vez)
-      await batch.commit();
-
-      showNotification("Pedido gerado e estoque atualizado!", "success");
-    } catch (err) {
-      console.error("Erro CRÍTICO na conversão:", err);
-      showNotification("Falha ao converter: " + err.message, "error");
-    }
-  };
   // --- NOVO RETURN COM LAYOUT ---
   return (
     <Layout
@@ -771,7 +668,6 @@ function InventorySystem() {
             }}
             findCatalogItem={findCatalogItem}
             inventory={inventory}
-            onConvert={handleConfirmConversion}
           />
         )}
         {activeTab === "production" && hasAccess("production") && (

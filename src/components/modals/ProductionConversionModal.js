@@ -43,7 +43,7 @@ const PE_TO_PRODUCTION_MAP = {
   pe_solicitado: "SOLICITACAO", // Vai para: AGUARDANDO ANÁLISE
   pe_imprimindo: "ESTOQUE_IMPRIMINDO", // Vai para: ESTOQUE - IMPRIMINDO
   pe_fundicao: "ESTOQUE_FUNDIDO", // Vai para: ESTOQUE - FUNDIDO
-  pe_conferencia: "PEDIDO_MODIFICADO", // Vai para: PEDIDO MODIFICADO
+  pe_conferencia: "INTERCEPTADO_ESTOQUE", // Vai para: PEDIDO MODIFICADO
   pe_interceptado: "SOLICITACAO", // Fallback de segurança
 };
 

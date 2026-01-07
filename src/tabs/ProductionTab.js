@@ -110,6 +110,42 @@ export default function ProductionTab({ user, findCatalogItem }) {
     setSelectedOrders(new Set());
   };
 
+  // --- NOVO: Handler para Movimentação em Massa ---
+  const handleBatchMove = async (newStatus) => {
+    if (!newStatus) return;
+
+    // 1. Confirmação de Segurança
+    const confirmMessage = `Tem certeza que deseja mover ${selectedOrders.size} pedidos para "${PRODUCTION_STATUS_CONFIG[newStatus]?.label}"?`;
+    if (!window.confirm(confirmMessage)) return;
+
+    try {
+      // 2. Transforma o Set de IDs em Array para iterar
+      const promises = Array.from(selectedOrders).map(async (orderId) => {
+        // Precisamos achar o pedido original para saber o status antigo (para o histórico)
+        const order = orders.find((o) => o.id === orderId);
+
+        if (order) {
+          return productionService.updateStatus(
+            orderId,
+            newStatus,
+            order.status, // Passa o status atual dele
+            user?.name || "Admin"
+          );
+        }
+      });
+
+      // 3. Executa tudo junto (Promise.all acelera o processo)
+      await Promise.all(promises);
+
+      // 4. Limpeza
+      setSelectedOrders(new Set()); // Desmarca tudo
+      alert("Movimentação em massa concluída!"); // Ou use seu showNotification se tiver
+    } catch (error) {
+      console.error("Erro no lote:", error);
+      alert("Erro ao mover alguns pedidos. Verifique o console.");
+    }
+  };
+
   const handleSaveSpecs = async (data) => {
     try {
       await productionService.updateSpecs(data.id, data.specs, user?.name);
@@ -282,13 +318,40 @@ export default function ProductionTab({ user, findCatalogItem }) {
                 </button>
               </div>
 
+              {/* BARRA DE AÇÕES EM MASSA */}
               {selectedOrders.size > 0 && (
-                <button
-                  onClick={handleBatchPrint}
-                  className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-black"
-                >
-                  <Printer size={16} /> Imprimir ({selectedOrders.size})
-                </button>
+                <div className="flex items-center gap-3 animate-pulse-once">
+                  {/* 1. SELETOR DE STATUS (NOVO) */}
+                  <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden h-9">
+                    <div className="bg-slate-100 px-3 py-2 border-r border-slate-200 text-xs font-bold text-slate-600 uppercase">
+                      Mover
+                    </div>
+                    <select
+                      className="pl-2 pr-8 py-1 text-sm bg-transparent outline-none cursor-pointer text-slate-700 font-medium hover:bg-slate-50 h-full w-40 appearance-none"
+                      onChange={(e) => handleBatchMove(e.target.value)}
+                      value="" // Força o select a ficar sempre no "placeholder" visualmente
+                    >
+                      <option value="" disabled>
+                        Selecione...
+                      </option>
+                      {/* Filtra para não mostrar status "inúteis" se quiser, ou mostra todos */}
+                      {KANBAN_ORDER.map((statusKey) => (
+                        <option key={statusKey} value={statusKey}>
+                          {PRODUCTION_STATUS_CONFIG[statusKey]?.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 2. BOTÃO IMPRIMIR (MANTIDO) */}
+                  <button
+                    onClick={handleBatchPrint}
+                    className="h-9 flex items-center gap-2 bg-slate-800 text-white px-4 rounded-lg text-sm font-bold hover:bg-black transition-colors shadow-sm"
+                  >
+                    <Printer size={16} />
+                    <span>Imprimir ({selectedOrders.size})</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>

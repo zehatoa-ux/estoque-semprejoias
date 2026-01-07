@@ -44,6 +44,7 @@ export const reservationsService = {
       originalReservationId: oldReservationId,
       convertedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
+      archived: false,
     };
 
     batch.set(newOrderDoc, payload);

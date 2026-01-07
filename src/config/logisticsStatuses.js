@@ -2,7 +2,7 @@
 
 export const LOGISTICS_STATUS_CONFIG = {
   "SEM ETIQUETA": {
-    color: "bg-slate-100 text-slate-600 border-slate-300",
+    color: "bg-indigo-100 text-indigo-600 border-indigo-300",
   },
   CANCELADO: {
     color: "bg-red-100 text-red-700 border-red-200",

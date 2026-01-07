@@ -10,6 +10,7 @@ import {
   Plus,
   PackagePlus,
   Hash,
+  Printer,
   RefreshCw, // Ícone para forçar reload se precisar
 } from "lucide-react";
 import {
@@ -24,6 +25,8 @@ import {
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { APP_COLLECTION_ID } from "../config/constants";
+import { formatProductionTicket } from "../utils/printFormatter"; // Importe o formatador
+import TextModal from "../components/modals/TextModal";
 
 // CONFIGURAÇÃO DOS STATUS
 const PE_STATUSES = [
@@ -70,6 +73,9 @@ export default function StockProductionTab({ user, findCatalogItem }) {
   // Estados para Seleção em Massa
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [targetStatus, setTargetStatus] = useState("");
+
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printContent, setPrintContent] = useState("");
 
   // --- CARREGAMENTO REALTIME (SIMPLIFICADO E ROBUSTO) ---
   useEffect(() => {
@@ -259,6 +265,64 @@ export default function StockProductionTab({ user, findCatalogItem }) {
       alert("Erro ao deletar");
     }
   };
+  // --- EXCLUSÃO EM MASSA ---
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+
+    // Confirmação de Segurança
+    const confirmMessage = `PERIGO: Você tem certeza que deseja EXCLUIR PERMANENTEMENTE ${selectedIds.size} itens?\n\nEssa ação não pode ser desfeita.`;
+    if (!window.confirm(confirmMessage)) return;
+
+    try {
+      const batch = writeBatch(db);
+
+      selectedIds.forEach((id) => {
+        const ref = doc(
+          db,
+          "artifacts",
+          APP_COLLECTION_ID,
+          "public",
+          "data",
+          "inventory_items",
+          id
+        );
+        batch.delete(ref);
+      });
+
+      await batch.commit();
+
+      setSelectedIds(new Set()); // Limpa a seleção após deletar
+      // Opcional: alert("Itens excluídos com sucesso.");
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao excluir lote: " + err.message);
+    }
+  };
+  // --- FUNÇÃO DE IMPRESSÃO (ADAPTADOR) ---
+  const handleBatchPrint = () => {
+    if (selectedIds.size === 0) return;
+
+    // 1. Pega os itens selecionados
+    const itemsToPrint = items.filter((i) => selectedIds.has(i.id));
+
+    // 2. Adapta os dados para o formatador (Simulando um Pedido)
+    const adaptedItems = itemsToPrint.map((item) => ({
+      ...item,
+      customerName: "PRODUCAO DE ESTOQUE", // Nome fictício
+      order: {
+        number: item.sku || "SN", // Número fictício
+      },
+      dateStr: item.dateIn || new Date().toLocaleDateString("pt-BR"),
+      specs: item.specs || {},
+    }));
+
+    // 3. Gera o Texto
+    const text = formatProductionTicket(adaptedItems);
+
+    // 4. Joga no Estado e Abre o Modal
+    setPrintContent(text);
+    setShowPrintModal(true);
+  };
 
   const currentConfig =
     PE_STATUSES.find((s) => s.id === activeTab) || PE_STATUSES[0];
@@ -395,15 +459,34 @@ export default function StockProductionTab({ user, findCatalogItem }) {
               </div>
 
               <div className="flex items-center gap-2 flex-1">
-                <span className="text-xs text-purple-700 font-medium">
+                {/* --- BOTÃO NOVO: DELETAR EM MASSA --- */}
+                <button
+                  onClick={handleBatchDelete}
+                  className="bg-red-100 text-red-700 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition-colors flex items-center gap-2 mr-2 border border-red-200 hover:border-red-600"
+                  title="Excluir Selecionados"
+                >
+                  <Trash2 size={14} /> Excluir
+                </button>
+                {/* ------------------------------------ */}
+
+                <button
+                  onClick={handleBatchPrint}
+                  className="bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-900 flex items-center gap-2 shadow-sm transition-colors mr-auto" // Adicionei mr-auto para empurrar o resto para a direita
+                  title="Imprimir Etiquetas"
+                >
+                  <Printer size={14} /> Imprimir
+                </button>
+
+                {/* Bloco de Mover (Mantido igual) */}
+                <span className="text-xs text-purple-700 font-medium ml-4 border-l border-purple-200 pl-4">
                   Mover para:
                 </span>
                 <select
-                  className="p-1.5 rounded border border-purple-200 text-xs font-bold text-slate-700 outline-none w-48 bg-white cursor-pointer"
+                  className="p-1.5 rounded border border-purple-200 text-xs font-bold text-slate-700 outline-none w-40 bg-white cursor-pointer"
                   value={targetStatus}
                   onChange={(e) => setTargetStatus(e.target.value)}
                 >
-                  <option value="">Selecione o destino...</option>
+                  <option value="">Destino...</option>
                   {PE_STATUSES.filter((s) => s.id !== activeTab).map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.label}
@@ -416,7 +499,7 @@ export default function StockProductionTab({ user, findCatalogItem }) {
                   disabled={!targetStatus}
                   className="bg-purple-600 text-white px-4 py-1.5 rounded text-xs font-bold hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2 shadow-sm transition-colors"
                 >
-                  <ArrowRight size={14} /> Mover Itens
+                  <ArrowRight size={14} /> Mover
                 </button>
               </div>
             </div>
@@ -530,6 +613,17 @@ export default function StockProductionTab({ user, findCatalogItem }) {
               </div>
             )}
           </div>
+          {/* --- AQUI É O LUGAR DO MODAL --- */}
+          {showPrintModal && (
+            <TextModal
+              title={`Etiquetas de Estoque (${selectedIds.size})`}
+              content={printContent}
+              onClose={() => {
+                setShowPrintModal(false);
+                setPrintContent(""); // Limpa o texto ao fechar
+              }}
+            />
+          )}
         </div>
       </main>
     </div>

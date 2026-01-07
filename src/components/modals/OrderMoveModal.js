@@ -7,19 +7,46 @@ export default function OrderMoveModal({ isOpen, item, onClose, onConfirm }) {
     customerName: "",
   });
 
+  // --- CORREÇÃO DO useEffect (Evita o erro de Objeto) ---
   useEffect(() => {
     if (isOpen && item) {
+      // Lógica de segurança para extrair o nome
+      let safeName = "";
+
+      if (typeof item.order?.customer === "string") {
+        safeName = item.order.customer;
+      } else if (item.order?.customer?.name) {
+        safeName = item.order.customer.name;
+      } else {
+        safeName = ""; // Começa vazio para forçar o usuário a digitar se não achar
+      }
+
       setFormData({
         orderNumber: item.order?.number || "",
-        customerName: item.order?.customer?.name || item.order?.customer || "",
+        customerName: safeName,
       });
     }
   }, [isOpen, item]);
 
   if (!isOpen) return null;
 
+  // --- AQUI ESTAVA FALTANDO A FUNÇÃO (COM VALIDAÇÃO) ---
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    // 1. Validação de Número do Pedido
+    if (!formData.orderNumber || formData.orderNumber.trim() === "") {
+      alert("ERRO: O Número do Pedido é obrigatório.");
+      return;
+    }
+
+    // 2. Validação de Nome do Cliente
+    if (!formData.customerName || formData.customerName.trim() === "") {
+      alert("ERRO: O Nome do Cliente é obrigatório.");
+      return;
+    }
+
+    // Se passou, envia
     onConfirm(item.id, formData);
   };
 
@@ -49,14 +76,16 @@ export default function OrderMoveModal({ isOpen, item, onClose, onConfirm }) {
             </span>
           </div>
 
+          {/* CAMPO NÚMERO */}
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-              <Hash size={10} /> Novo Número do Pedido
+              <Hash size={10} /> Novo Número do Pedido{" "}
+              <span className="text-red-500">*</span>
             </label>
             <input
               autoFocus
               type="text"
-              required
+              required // Validação HTML nativa
               className="w-full p-2 border rounded font-bold text-slate-700 focus:border-blue-500 outline-none text-sm"
               value={formData.orderNumber}
               onChange={(e) =>
@@ -66,17 +95,21 @@ export default function OrderMoveModal({ isOpen, item, onClose, onConfirm }) {
             />
           </div>
 
+          {/* CAMPO NOME */}
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-              <User size={10} /> Nome do Cliente
+              <User size={10} /> Nome do Cliente{" "}
+              <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
+              required // Validação HTML nativa
               className="w-full p-2 border rounded text-slate-700 focus:border-blue-500 outline-none text-sm"
               value={formData.customerName}
               onChange={(e) =>
                 setFormData({ ...formData, customerName: e.target.value })
               }
+              placeholder="Digite o nome..."
             />
           </div>
 

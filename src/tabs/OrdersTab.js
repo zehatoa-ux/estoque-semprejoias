@@ -525,7 +525,12 @@ export default function OrdersTab({ findCatalogItem }) {
                                       className="text-slate-400"
                                     />
                                     <span className="font-bold text-slate-700 truncate text-sm">
-                                      {group.customerName}
+                                      {/* CORREÇÃO DE SEGURANÇA: Verifica se é objeto ou string */}
+                                      {typeof group.customerName === "object"
+                                        ? group.customerName?.name ||
+                                          "Cliente sem nome"
+                                        : group.customerName ||
+                                          "Cliente sem nome"}
                                     </span>
                                   </div>
                                 </div>

@@ -139,8 +139,8 @@ export default function ReservationsTab({
   };
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col bg-slate-50 p-4 overflow-hidden relative">
-      {/* Loading Overlay Global da Aba */}
+    <div className="h-[calc(100vh-64px)] flex flex-col bg-slate-50 overflow-hidden relative">
+      {/* Loading Overlay */}
       {loading && (
         <div className="absolute inset-0 bg-white/50 z-50 flex items-center justify-center backdrop-blur-sm">
           <div className="bg-white p-4 rounded-xl shadow-xl flex items-center gap-3">
@@ -150,6 +150,7 @@ export default function ReservationsTab({
         </div>
       )}
 
+      {/* Modais */}
       {conversionData && (
         <ProductionConversionModal
           isOpen={!!conversionData}
@@ -238,97 +239,110 @@ export default function ReservationsTab({
         </div>
       )}
 
-      {/* HEADER */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4 flex flex-col md:flex-row gap-4 justify-between items-center shrink-0">
+      {/* HEADER (Com Layout Responsivo) */}
+      <div className="bg-white p-4 border-b border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center shrink-0 shadow-sm z-20">
         <div className="flex items-center gap-2 text-slate-700">
           <Package className="text-purple-600" />
-          <h2 className="font-bold text-lg">Reservas & Pedidos</h2>
+          <h2 className="font-bold text-lg hidden md:block">
+            Reservas & Pedidos
+          </h2>
+          <h2 className="font-bold text-lg md:hidden">Reservas</h2>
           <span className="bg-slate-100 px-2 py-0.5 rounded text-xs font-bold text-slate-500">
             {filteredReservations.length}
           </span>
         </div>
 
-        <div className="flex gap-2 w-full md:w-auto">
-          <button
-            onClick={() => setIsCreating(true)}
-            className="flex items-center gap-2 bg-purple-600 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition-colors shadow-sm"
-          >
-            <Plus size={16} /> Nova Reserva
-          </button>
-
-          {selectedIds.size > 0 && (
+        <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+          {/* Botões de Ação (Mobile: Grid 2 colunas) */}
+          <div className="grid grid-cols-2 gap-2 md:flex">
             <button
-              onClick={handleBulkDelete}
-              className="flex items-center gap-2 bg-red-100 text-red-700 px-3 py-2 rounded-lg text-sm font-bold hover:bg-red-200 transition-colors"
+              onClick={() => setIsCreating(true)}
+              className="flex items-center justify-center gap-2 bg-purple-600 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition-colors shadow-sm"
             >
-              <Trash2 size={16} /> Excluir ({selectedIds.size})
+              <Plus size={16} /> <span className="md:inline">Nova</span>
             </button>
-          )}
 
-          <div className="relative">
-            <Filter
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              size={16}
-            />
-            <select
-              className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none bg-white focus:border-purple-500"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="all">Todos Status</option>
-              <option value="IA_IMPORTED">Novos (IA)</option>
-              <option value="PENDENTE">Pendentes</option>
-            </select>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleBulkDelete}
+                className="flex items-center justify-center gap-2 bg-red-100 text-red-700 px-3 py-2 rounded-lg text-sm font-bold hover:bg-red-200 transition-colors"
+              >
+                <Trash2 size={16} />{" "}
+                <span className="md:inline">Excluir ({selectedIds.size})</span>
+              </button>
+            )}
           </div>
 
-          <div className="relative flex-1 md:w-64">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              size={16}
-            />
-            <input
-              type="text"
-              placeholder="Buscar..."
-              className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none w-full focus:border-purple-500"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-            />
+          {/* Filtros e Busca */}
+          <div className="flex gap-2 w-full md:w-auto">
+            <div className="relative w-1/3 md:w-auto">
+              <Filter
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={16}
+              />
+              <select
+                className="pl-9 pr-2 py-2 border rounded-lg text-sm outline-none bg-white focus:border-purple-500 w-full"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">Todos</option>
+                <option value="IA_IMPORTED">Novos</option>
+                <option value="PENDENTE">Pendentes</option>
+              </select>
+            </div>
+
+            <div className="relative flex-1 md:w-64">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={16}
+              />
+              <input
+                type="text"
+                placeholder="Buscar..."
+                className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none w-full focus:border-purple-500"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* TABELA */}
-      <div className="flex-1 overflow-auto custom-scrollbar bg-white rounded-xl border border-slate-200 shadow-sm">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold border-b sticky top-0 z-10">
+      {/* TABELA RESPONSIVA (TABLE TO CARD) */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-2 md:p-4 bg-slate-50">
+        <table className="w-full text-left text-sm block md:table">
+          {/* THEAD (Escondido no Mobile) */}
+          <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold border-b sticky top-0 z-10 hidden md:table-header-group shadow-sm">
             <tr>
-              <th className="px-4 py-3 w-10 text-center">
+              <th className="px-4 py-3 w-10 text-center bg-slate-50">
                 <CheckSquare size={14} />
               </th>
-              <th className="px-4 py-3 text-center">Disponibilidade</th>
-              <th className="px-4 py-3">Data</th>
-              <th className="px-4 py-3">Produto / SKU</th>
-              <th className="px-4 py-3">Cliente / Pedido</th>
-              <th className="px-4 py-3 w-1/4">Especificações</th>
-              <th className="px-4 py-3 text-center">Criado Por</th>
-              <th className="px-4 py-3 text-center">Ação</th>
+              <th className="px-4 py-3 text-center bg-slate-50">
+                Disponibilidade
+              </th>
+              <th className="px-4 py-3 bg-slate-50">Data</th>
+              <th className="px-4 py-3 bg-slate-50">Produto / SKU</th>
+              <th className="px-4 py-3 bg-slate-50">Cliente / Pedido</th>
+              <th className="px-4 py-3 w-1/4 bg-slate-50">Especificações</th>
+              <th className="px-4 py-3 text-center bg-slate-50">Criado Por</th>
+              <th className="px-4 py-3 text-center bg-slate-50">Ação</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+
+          <tbody className="block md:table-row-group space-y-3 md:space-y-0 pb-20">
             {filteredReservations.map((res) => {
               const catalog = findCatalogItem ? findCatalogItem(res.sku) : null;
               const isSelected = selectedIds.has(res.id);
 
-              // --- LÓGICA DE DISPONIBILIDADE ---
+              // Lógica de Disponibilidade
               const stockCount = inventory.filter(
                 (i) => i.sku === res.sku && i.status === "in_stock"
               ).length;
               const isAvailable = stockCount > 0;
 
-              // --- FORMATAÇÃO DE DATA ---
+              // Formatação de Data
               let displayDate = "-";
               let displayTime = "";
-
               if (res.createdAt) {
                 const d = parseDate(res.createdAt);
                 displayDate = d.toLocaleDateString("pt-BR");
@@ -345,47 +359,70 @@ export default function ReservationsTab({
               return (
                 <tr
                   key={res.id}
-                  className={`hover:bg-slate-50 group ${
-                    isSelected ? "bg-purple-50" : ""
-                  }`}
+                  className={`
+                    block md:table-row 
+                    relative 
+                    bg-white 
+                    border border-slate-200 md:border-b md:border-slate-100 rounded-xl md:rounded-none 
+                    shadow-sm md:shadow-none 
+                    hover:bg-slate-50 
+                    group 
+                    transition-all
+                    ${
+                      isSelected
+                        ? "bg-purple-50 ring-1 ring-purple-400 md:ring-0"
+                        : ""
+                    }
+                  `}
                 >
-                  <td className="px-4 py-3 text-center">
+                  {/* 1. CHECKBOX (Absoluto no Mobile - Topo Esquerdo) */}
+                  <td className="block md:table-cell md:px-4 md:py-3 text-center align-top p-3 md:p-0 absolute top-0 left-0 md:static z-10">
                     <input
                       type="checkbox"
-                      className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                      className="w-5 h-5 md:w-4 md:h-4 rounded border-slate-300 cursor-pointer"
                       checked={isSelected}
                       onChange={() => toggleSelection(res.id)}
                     />
                   </td>
 
-                  {/* INDICADOR DE DISPONIBILIDADE */}
-                  <td className="px-4 py-3 text-center">
+                  {/* 2. DISPONIBILIDADE (Absoluto no Mobile - Topo Direito) */}
+                  <td className="block md:table-cell md:px-4 md:py-3 text-center align-top p-3 md:p-0 absolute top-0 right-0 md:static z-10">
                     {isAvailable ? (
-                      <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full text-[10px] font-bold border border-emerald-200">
+                      <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full text-[10px] font-bold border border-emerald-200 shadow-sm">
                         <CheckCircle size={10} /> {stockCount} UN
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2 py-1 rounded-full text-[10px] font-bold border border-red-200">
+                      <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2 py-1 rounded-full text-[10px] font-bold border border-red-200 shadow-sm">
                         <AlertTriangle size={10} /> FALTA
                       </span>
                     )}
                   </td>
 
-                  <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+                  {/* 3. DATA (Abaixo do Checkbox no Mobile) */}
+                  <td className="block md:table-cell px-4 pb-1 pt-10 md:py-3 text-slate-500 text-xs md:whitespace-nowrap">
                     <div className="flex items-center gap-1">
                       <Calendar size={12} /> {displayDate}
+                      <span className="md:hidden text-[10px] opacity-70 ml-1">
+                        {displayTime}
+                      </span>
                     </div>
-                    <div className="text-[10px] opacity-70">{displayTime}</div>
+                    <div className="hidden md:block text-[10px] opacity-70">
+                      {displayTime}
+                    </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="font-bold text-blue-600 text-xs">
+
+                  {/* 4. PRODUTO (Empilhado) */}
+                  <td className="block md:table-cell px-4 py-1 md:py-3">
+                    <div className="font-bold text-blue-600 text-sm md:text-xs">
                       {res.sku}
                     </div>
-                    <div className="text-xs text-slate-600 line-clamp-1 max-w-[200px]">
+                    <div className="text-xs text-slate-600 md:line-clamp-1 whitespace-normal break-words leading-tight">
                       {catalog?.name || "Produto não identificado"}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+
+                  {/* 5. CLIENTE (Empilhado) */}
+                  <td className="block md:table-cell px-4 py-1 md:py-3">
                     <div className="flex items-center gap-1 font-bold text-slate-700 text-xs">
                       <User size={12} /> {res.order?.customer?.name || "Balcão"}
                     </div>
@@ -393,7 +430,9 @@ export default function ReservationsTab({
                       Ped: {res.order?.number || "-"}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+
+                  {/* 6. SPECS (Tags) */}
+                  <td className="block md:table-cell px-4 py-2 md:py-3">
                     <div className="flex flex-wrap gap-1">
                       {res.specs?.size && (
                         <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] font-bold border">
@@ -413,7 +452,7 @@ export default function ReservationsTab({
                         )}
                       {res.specs?.finishing && res.specs.finishing !== "ND" && (
                         <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] border">
-                          Finalização: {res.specs.finishing}
+                          Fin: {res.specs.finishing}
                         </span>
                       )}
                       {!res.specs?.size &&
@@ -426,19 +465,22 @@ export default function ReservationsTab({
                     </div>
                   </td>
 
-                  <td className="px-4 py-3 text-center">
+                  {/* 7. CRIADO POR (Mobile: Inline) */}
+                  <td className="block md:table-cell px-4 py-1 md:py-3 md:text-center">
                     <div className="inline-flex items-center gap-1 bg-slate-100 px-2 py-1 rounded border border-slate-200 text-[10px] font-bold text-slate-600 uppercase">
                       <UserCheck size={10} className="text-slate-400" />
                       {res.createdBy || "SISTEMA"}
                     </div>
                   </td>
 
-                  <td className="px-4 py-3 text-center">
+                  {/* 8. BOTÃO AÇÃO (Mobile: Largura Total em Baixo) */}
+                  <td className="block md:table-cell px-4 py-3 md:py-3 text-center border-t md:border-0 mt-2 md:mt-0 bg-slate-50 md:bg-transparent rounded-b-xl md:rounded-none">
                     <button
                       onClick={() => setConversionData(res)}
-                      className="bg-slate-800 hover:bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2 mx-auto shadow-sm"
+                      className="w-full md:w-auto bg-slate-800 hover:bg-purple-600 text-white px-3 py-2 md:py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2 mx-auto shadow-sm"
                     >
-                      <Factory size={14} /> Fábrica
+                      <Factory size={14} />{" "}
+                      <span className="md:hidden">Enviar para</span> Fábrica
                     </button>
                   </td>
                 </tr>

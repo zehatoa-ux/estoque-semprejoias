@@ -185,8 +185,9 @@ export default function ProductionTab({ user, findCatalogItem }) {
     );
 
   return (
-    <div className="flex h-[calc(100vh-64px)] w-full overflow-hidden bg-slate-50">
-      {/* --- MODAIS --- */}
+    // 1. LAYOUT RESPONSIVO: Coluna no Mobile, Linha no PC
+    <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] w-full overflow-hidden bg-slate-50">
+      {/* --- MODAIS (Mantidos) --- */}
       {printContent && (
         <TextModal
           content={printContent}
@@ -205,8 +206,8 @@ export default function ProductionTab({ user, findCatalogItem }) {
         />
       )}
 
-      {/* --- COLUNA ESQUERDA: MENU DE STATUS (Sidebar Interna) --- */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0 z-10 shadow-sm overflow-hidden">
+      {/* --- SIDEBAR LATERAL (VISÍVEL APENAS NO DESKTOP) --- */}
+      <aside className="hidden md:flex w-64 bg-white border-r border-slate-200 flex-col shrink-0 z-10 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100">
           <h2 className="font-bold text-slate-700 flex items-center gap-2">
             <Layers size={18} /> Processos
@@ -236,9 +237,6 @@ export default function ProductionTab({ user, findCatalogItem }) {
             const config = PRODUCTION_STATUS_CONFIG[statusId];
             const count = groupedOrders[statusId]?.length || 0;
             const isActive = activeStatusFilter === statusId;
-
-            // Pega a cor base do config (ex: "bg-red-500") para usar no botão
-            // Hack simples para extrair a cor ou usar uma padrão
             const colorClass = config.color || "bg-slate-500";
 
             return (
@@ -269,17 +267,49 @@ export default function ProductionTab({ user, findCatalogItem }) {
         </div>
       </aside>
 
-      {/* --- COLUNA DIREITA: CONTEÚDO PRINCIPAL (100% Restante) --- */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      {/* --- ÁREA PRINCIPAL (DIREITA) --- */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        {/* ===> MENU MOBILE (NOVO: APARECE NO TOPO) <=== */}
+        <div className="md:hidden bg-slate-100 border-b border-slate-200 p-3 shrink-0 z-20">
+          <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+            <Layers size={12} /> Filtrar Processo:
+          </label>
+          <div className="relative">
+            <select
+              value={activeStatusFilter}
+              onChange={(e) => setActiveStatusFilter(e.target.value)}
+              className="w-full appearance-none bg-white border border-slate-300 text-slate-800 text-sm font-bold rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-purple-500 shadow-sm"
+            >
+              <option value="all">VISÃO GERAL ({filteredOrders.length})</option>
+              {KANBAN_ORDER.map((statusId) => (
+                <option key={statusId} value={statusId}>
+                  {PRODUCTION_STATUS_CONFIG[statusId]?.label} (
+                  {groupedOrders[statusId]?.length || 0})
+                </option>
+              ))}
+            </select>
+            {/* Ícone seta */}
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+              <Filter size={14} />
+            </div>
+          </div>
+        </div>
+        {/* ====================================================== */}
+
         {/* TOPO: Gráfico + Busca + Filtros */}
         <div className="bg-white border-b border-slate-200 p-4 shrink-0 space-y-4">
-          {/* Gráfico de Idade (AgeChart) - Agora aqui dentro */}
-          <div className="w-full">
+          {/* Gráfico de Idade (Escondido em telas MUITO pequenas se quiser, ou mantido) */}
+          <div className="w-full hidden sm:block">
+            {" "}
+            {/* Exemplo: Só aparece em telas > 640px */}
             <AgeChart orders={filteredOrders} />
           </div>
+          {/* Versão Mobile do Gráfico (Opcional, se quiser algo menor) */}
+          {/* ... */}
 
           {/* Toolbar */}
-          <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+          <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+            {/* Busca */}
             <div className="relative flex-1 w-full md:max-w-md">
               <Search
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -294,7 +324,9 @@ export default function ProductionTab({ user, findCatalogItem }) {
               />
             </div>
 
-            <div className="flex gap-2">
+            {/* Ações e Visualização */}
+            <div className="flex flex-wrap gap-2 w-full md:w-auto">
+              {/* Botões Lista/Kanban */}
               <div className="flex bg-slate-100 p-1 rounded-lg">
                 <button
                   onClick={() => setGroupBy("status")}
@@ -304,7 +336,8 @@ export default function ProductionTab({ user, findCatalogItem }) {
                       : "text-slate-500"
                   }`}
                 >
-                  <LayoutList size={14} /> Lista
+                  <LayoutList size={14} />{" "}
+                  <span className="hidden sm:inline">Lista</span>
                 </button>
                 <button
                   onClick={() => setGroupBy("days")}
@@ -314,27 +347,27 @@ export default function ProductionTab({ user, findCatalogItem }) {
                       : "text-slate-500"
                   }`}
                 >
-                  <Kanban size={14} /> Kanban
+                  <Kanban size={14} />{" "}
+                  <span className="hidden sm:inline">Kanban</span>
                 </button>
               </div>
 
               {/* BARRA DE AÇÕES EM MASSA */}
               {selectedOrders.size > 0 && (
-                <div className="flex items-center gap-3 animate-pulse-once">
-                  {/* 1. SELETOR DE STATUS (NOVO) */}
-                  <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden h-9">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto animate-pulse-once mt-2 sm:mt-0">
+                  {/* 1. SELETOR DE STATUS (Mover) */}
+                  <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden h-9 flex-1 sm:flex-none">
                     <div className="bg-slate-100 px-3 py-2 border-r border-slate-200 text-xs font-bold text-slate-600 uppercase">
                       Mover
                     </div>
                     <select
-                      className="pl-2 pr-8 py-1 text-sm bg-transparent outline-none cursor-pointer text-slate-700 font-medium hover:bg-slate-50 h-full w-40 appearance-none"
+                      className="pl-2 pr-8 py-1 text-sm bg-transparent outline-none cursor-pointer text-slate-700 font-medium hover:bg-slate-50 h-full w-full sm:w-40 appearance-none"
                       onChange={(e) => handleBatchMove(e.target.value)}
-                      value="" // Força o select a ficar sempre no "placeholder" visualmente
+                      value=""
                     >
                       <option value="" disabled>
                         Selecione...
                       </option>
-                      {/* Filtra para não mostrar status "inúteis" se quiser, ou mostra todos */}
                       {KANBAN_ORDER.map((statusKey) => (
                         <option key={statusKey} value={statusKey}>
                           {PRODUCTION_STATUS_CONFIG[statusKey]?.label}
@@ -343,10 +376,10 @@ export default function ProductionTab({ user, findCatalogItem }) {
                     </select>
                   </div>
 
-                  {/* 2. BOTÃO IMPRIMIR (MANTIDO) */}
+                  {/* 2. BOTÃO IMPRIMIR */}
                   <button
                     onClick={handleBatchPrint}
-                    className="h-9 flex items-center gap-2 bg-slate-800 text-white px-4 rounded-lg text-sm font-bold hover:bg-black transition-colors shadow-sm"
+                    className="h-9 flex items-center justify-center gap-2 bg-slate-800 text-white px-4 rounded-lg text-sm font-bold hover:bg-black transition-colors shadow-sm flex-1 sm:flex-none"
                   >
                     <Printer size={16} />
                     <span>Imprimir ({selectedOrders.size})</span>
@@ -358,10 +391,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
         </div>
 
         {/* ÁREA DE SCROLL DA LISTA */}
-        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
-          {/* Passamos o groupedOrders FILTRADO pelo status selecionado no menu lateral.
-              Se 'all', passa tudo. Se não, cria um objeto contendo apenas aquele status.
-           */}
+        <div className="flex-1 overflow-y-auto p-2 md:p-4 custom-scrollbar bg-slate-50/50">
           <ProductionListView
             groupedOrders={
               activeStatusFilter === "all"

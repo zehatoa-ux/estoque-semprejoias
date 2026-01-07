@@ -195,8 +195,9 @@ export default function OrdersTab({ findCatalogItem }) {
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] w-full overflow-hidden bg-slate-50">
-      {/* --- MODAIS --- */}
+    // 1. CONTAINER: Coluna no Mobile, Linha no PC
+    <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] w-full overflow-hidden bg-slate-50">
+      {/* --- MODAIS (Mantidos iguais) --- */}
       {editingItem && (
         <ProductionConversionModal
           isOpen={!!editingItem}
@@ -224,8 +225,8 @@ export default function OrdersTab({ findCatalogItem }) {
         />
       )}
 
-      {/* --- SIDEBAR LATERAL (ESQUERDA) --- */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0 z-10 shadow-sm overflow-hidden">
+      {/* --- SIDEBAR LATERAL (VISÍVEL APENAS NO DESKTOP) --- */}
+      <aside className="hidden md:flex w-64 bg-white border-r border-slate-200 flex-col shrink-0 z-10 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100">
           <h2 className="font-bold text-slate-700 flex items-center gap-2">
             <Truck size={18} /> Logística
@@ -299,8 +300,34 @@ export default function OrdersTab({ findCatalogItem }) {
       </aside>
 
       {/* --- ÁREA PRINCIPAL (DIREITA) --- */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* TOPO: Busca + Filtros + Ações */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        {/* ===> MENU MOBILE (NOVO: APARECE NO TOPO DO MAIN NO CELULAR) <=== */}
+        <div className="md:hidden bg-slate-100 border-b border-slate-200 p-3 shrink-0 z-20">
+          <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+            <Truck size={12} /> Filtrar Status Logístico:
+          </label>
+          <div className="relative">
+            <select
+              value={activeStatusFilter}
+              onChange={(e) => setActiveStatusFilter(e.target.value)}
+              className="w-full appearance-none bg-white border border-slate-300 text-slate-800 text-sm font-bold rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+            >
+              <option value="all">VISÃO GERAL ({groupedOrders.length})</option>
+              {LOGISTICS_ORDER.map((statusId) => (
+                <option key={statusId} value={statusId}>
+                  {statusId} ({statusCounts[statusId] || 0})
+                </option>
+              ))}
+            </select>
+            {/* Ícone seta */}
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+              <Filter size={14} />
+            </div>
+          </div>
+        </div>
+        {/* =============================================================== */}
+
+        {/* TOPO DA TAB: Busca + Filtros Secundários + Ações */}
         <div className="bg-white border-b border-slate-200 p-4 flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center shrink-0">
           {/* Grupo de Filtros */}
           <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto flex-1">
@@ -319,52 +346,55 @@ export default function OrdersTab({ findCatalogItem }) {
               />
             </div>
 
-            {/* 2. Filtro UF */}
-            <div className="relative min-w-[100px]">
-              <MapPin
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                size={16}
-              />
-              <select
-                className="pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-sm w-full outline-none appearance-none bg-white cursor-pointer hover:border-blue-400 focus:border-blue-500 font-bold text-slate-600"
-                value={filterUF}
-                onChange={(e) => setFilterUF(e.target.value)}
-              >
-                <option value="all">Todos UF</option>
-                {availableUFs.map((uf) => (
-                  <option key={uf} value={uf}>
-                    {uf}
-                  </option>
-                ))}
-              </select>
-              <Filter
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                size={12}
-              />
-            </div>
+            {/* Container flex para os selects no mobile ficarem lado a lado se der */}
+            <div className="flex gap-2 w-full md:w-auto">
+              {/* 2. Filtro UF */}
+              <div className="relative flex-1 md:min-w-[100px]">
+                <MapPin
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={16}
+                />
+                <select
+                  className="pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-sm w-full outline-none appearance-none bg-white cursor-pointer hover:border-blue-400 focus:border-blue-500 font-bold text-slate-600"
+                  value={filterUF}
+                  onChange={(e) => setFilterUF(e.target.value)}
+                >
+                  <option value="all">UF</option>
+                  {availableUFs.map((uf) => (
+                    <option key={uf} value={uf}>
+                      {uf}
+                    </option>
+                  ))}
+                </select>
+                <Filter
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={12}
+                />
+              </div>
 
-            {/* 3. Filtro Status Produção */}
-            <div className="relative min-w-[180px]">
-              <Factory
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                size={16}
-              />
-              <select
-                className="pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-sm w-full outline-none appearance-none bg-white cursor-pointer hover:border-blue-400 focus:border-blue-500 font-bold text-slate-600"
-                value={filterProdStatus}
-                onChange={(e) => setFilterProdStatus(e.target.value)}
-              >
-                <option value="all">Prod: Todos</option>
-                {KANBAN_ORDER.map((status) => (
-                  <option key={status} value={status}>
-                    {PRODUCTION_STATUS_CONFIG[status]?.label || status}
-                  </option>
-                ))}
-              </select>
-              <Filter
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                size={12}
-              />
+              {/* 3. Filtro Status Produção */}
+              <div className="relative flex-[1.5] md:min-w-[180px]">
+                <Factory
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={16}
+                />
+                <select
+                  className="pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-sm w-full outline-none appearance-none bg-white cursor-pointer hover:border-blue-400 focus:border-blue-500 font-bold text-slate-600"
+                  value={filterProdStatus}
+                  onChange={(e) => setFilterProdStatus(e.target.value)}
+                >
+                  <option value="all">Prod: Todos</option>
+                  {KANBAN_ORDER.map((status) => (
+                    <option key={status} value={status}>
+                      {PRODUCTION_STATUS_CONFIG[status]?.label || status}
+                    </option>
+                  ))}
+                </select>
+                <Filter
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={12}
+                />
+              </div>
             </div>
           </div>
 
@@ -372,7 +402,7 @@ export default function OrdersTab({ findCatalogItem }) {
           {selectedItems.size > 0 && (
             <button
               onClick={handlePrintCertificates}
-              className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-black transition-colors shadow-sm animate-fade-in whitespace-nowrap"
+              className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-black transition-colors shadow-sm animate-fade-in whitespace-nowrap w-full md:w-auto justify-center"
             >
               <Printer size={16} /> Imprimir Certificados ({selectedItems.size})
             </button>
@@ -380,7 +410,7 @@ export default function OrdersTab({ findCatalogItem }) {
         </div>
 
         {/* LISTA DE PEDIDOS (Scrollável) */}
-        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
+        <div className="flex-1 overflow-y-auto p-2 md:p-4 custom-scrollbar bg-slate-50/50">
           {displayedOrders.length === 0 ? (
             <div className="text-center py-20 text-slate-400">
               <Package size={48} className="mx-auto mb-2 opacity-20" />
@@ -398,7 +428,7 @@ export default function OrdersTab({ findCatalogItem }) {
               )}
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-6 pb-20">
               {(activeStatusFilter === "all"
                 ? LOGISTICS_ORDER
                 : [activeStatusFilter]
@@ -439,7 +469,7 @@ export default function OrdersTab({ findCatalogItem }) {
                     </div>
 
                     {/* Cards de Pedidos */}
-                    <div className="space-y-3 pl-2">
+                    <div className="space-y-3 pl-1 md:pl-2">
                       {ordersInGroup.map((group) => {
                         const isExpanded = expandedOrders.has(
                           group.orderNumber
@@ -499,7 +529,7 @@ export default function OrdersTab({ findCatalogItem }) {
                               </div>
 
                               {/* 2. UF e Frete */}
-                              <div className="flex items-center gap-2 w-full md:w-auto">
+                              <div className="flex items-center gap-2 w-full md:w-auto pl-8 md:pl-0">
                                 {/* UF */}
                                 <div
                                   className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 border border-slate-200 uppercase"
@@ -520,7 +550,7 @@ export default function OrdersTab({ findCatalogItem }) {
 
                               {/* 3. Status (Dropdown) */}
                               <div
-                                className="w-full md:w-32"
+                                className="w-full md:w-32 pl-8 md:pl-0"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <select
@@ -542,7 +572,7 @@ export default function OrdersTab({ findCatalogItem }) {
                               </div>
 
                               {/* 4. Meta Info */}
-                              <div className="flex items-center gap-4 justify-between md:justify-end text-sm md:w-auto w-full border-t md:border-t-0 pt-2 md:pt-0 mt-2 md:mt-0">
+                              <div className="flex items-center gap-4 justify-between md:justify-end text-sm md:w-auto w-full border-t md:border-t-0 pt-2 md:pt-0 mt-2 md:mt-0 pl-8 md:pl-0">
                                 <div className="flex flex-col items-end">
                                   <span className="text-[10px] font-bold text-slate-400 uppercase">
                                     Data
@@ -621,11 +651,11 @@ export default function OrdersTab({ findCatalogItem }) {
                                     return (
                                       <div
                                         key={subItem.id}
-                                        className={`flex items-center justify-between p-2 rounded bg-white border ${
+                                        className={`flex flex-col md:flex-row md:items-center justify-between p-2 rounded bg-white border ${
                                           isSelected
                                             ? "border-blue-400 ring-1 ring-blue-100"
                                             : "border-slate-200"
-                                        } transition-all`}
+                                        } transition-all gap-2`}
                                       >
                                         <div className="flex items-center gap-3">
                                           <input
@@ -700,7 +730,7 @@ export default function OrdersTab({ findCatalogItem }) {
                                         </div>
 
                                         <select
-                                          className={`text-[10px] font-bold px-2 py-1 rounded uppercase cursor-pointer outline-none text-center ${statusConf.color}`}
+                                          className={`text-[10px] font-bold px-2 py-1 rounded uppercase cursor-pointer outline-none text-center w-full md:w-auto ${statusConf.color}`}
                                           value={subItem.status}
                                           onChange={(e) =>
                                             actions.updateItemStatus(

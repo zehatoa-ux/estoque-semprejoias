@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Search,
   Calendar,
+  ArrowRight,
   XCircle,
 } from "lucide-react";
 import { useArchivedPagination } from "../hooks/useArchivedPagination";
@@ -61,7 +62,8 @@ export default function ArchivedTab({ user }) {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-slate-50 w-full">
+    <div className="flex flex-col h-[calc(100vh-64px)] bg-slate-50 w-full overflow-hidden">
+      {/* MODAL DETALHES */}
       {selectedOrder && (
         <ArchivedDetailsModal
           order={selectedOrder}
@@ -70,16 +72,16 @@ export default function ArchivedTab({ user }) {
         />
       )}
 
-      {/* HEADER */}
-      <div className="bg-white border-b border-slate-200 p-4 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center">
+      {/* HEADER (Responsivo) */}
+      <div className="bg-white border-b border-slate-200 p-4 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-start md:items-center shrink-0 z-20">
         <div className="flex items-center gap-2 text-slate-700">
           <Archive size={24} className="text-purple-600" />
           <h1 className="text-xl font-bold">Arquivo Morto</h1>
         </div>
 
         {/* BARRA DE PESQUISA COM BOTÃO */}
-        <div className="flex items-center gap-2 w-full max-w-lg">
-          <div className="relative flex-1">
+        <div className="flex flex-col md:flex-row items-center gap-2 w-full md:max-w-lg">
+          <div className="relative flex-1 w-full">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               size={18}
@@ -87,7 +89,7 @@ export default function ArchivedTab({ user }) {
             <input
               type="text"
               placeholder="Busque por Pedido, Nome ou SKU..."
-              className="w-full pl-10 pr-10 py-2 border border-slate-300 rounded-l-lg focus:ring-2 focus:ring-purple-500 outline-none transition-all"
+              className="w-full pl-10 pr-10 py-2 border border-slate-300 rounded-lg md:rounded-l-lg md:rounded-r-none focus:ring-2 focus:ring-purple-500 outline-none transition-all"
               value={localSearchTerm}
               onChange={(e) => setLocalSearchTerm(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -104,15 +106,15 @@ export default function ArchivedTab({ user }) {
           <button
             onClick={handleSearchSubmit}
             disabled={loading}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-r-lg font-bold transition-colors shadow-sm disabled:opacity-50"
+            className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg md:rounded-l-none md:rounded-r-lg font-bold transition-colors shadow-sm disabled:opacity-50"
           >
-            {loading && isSearching ? "Buscando..." : "Buscar"}
+            {loading && isSearching ? "..." : "Buscar"}
           </button>
         </div>
 
-        {/* PAGINAÇÃO (Esconde se estiver buscando) */}
+        {/* PAGINAÇÃO */}
         {!isSearching && (
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between w-full md:w-auto gap-4">
             <span className="text-sm font-medium text-slate-500">
               Pág. {pageNumber}
             </span>
@@ -136,17 +138,18 @@ export default function ArchivedTab({ user }) {
         )}
       </div>
 
-      {/* LISTA */}
-      <div className="flex-1 overflow-auto p-6">
+      {/* LISTA (TABLE TO CARD) */}
+      <div className="flex-1 overflow-auto p-2 md:p-6 custom-scrollbar">
         {loading ? (
           <div className="flex justify-center items-center h-full text-slate-400 animate-pulse">
             Carregando...
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+          <div className="md:bg-white md:rounded-xl md:shadow md:border md:border-slate-200 md:overflow-hidden">
+            <table className="w-full text-left border-collapse block md:table">
+              {/* THEAD (Escondido no Mobile) */}
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200 hidden md:table-header-group sticky top-0">
+                <tr>
                   <th className="p-4">Data</th>
                   <th className="p-4">Pedido</th>
                   <th className="p-4">Cliente</th>
@@ -155,42 +158,74 @@ export default function ArchivedTab({ user }) {
                   <th className="p-4 text-right">Ação</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
+
+              <tbody className="block md:table-row-group space-y-3 md:space-y-0 text-sm pb-20">
                 {orders.map((order) => (
                   <tr
                     key={order.id}
                     onClick={() => setSelectedOrder(order)}
-                    className="hover:bg-purple-50 cursor-pointer transition-colors group"
+                    className="
+                      block md:table-row 
+                      relative 
+                      bg-white 
+                      border border-slate-200 md:border-b md:border-slate-100 rounded-xl md:rounded-none 
+                      shadow-sm md:shadow-none 
+                      hover:bg-purple-50 
+                      cursor-pointer 
+                      transition-colors 
+                      group
+                    "
                   >
-                    <td className="p-4 text-slate-500">
+                    {/* 1. DATA (Mobile: Topo Direito) */}
+                    <td className="block md:table-cell px-4 pt-3 pb-1 md:p-4 text-slate-500 text-xs md:text-sm absolute top-0 right-0 md:static">
                       {formatDate(order.createdAt)}
                     </td>
-                    <td className="p-4 font-bold text-slate-700">
+
+                    {/* 2. PEDIDO (Mobile: Topo Esquerdo) */}
+                    <td className="block md:table-cell px-4 pt-3 pb-1 md:p-4 font-bold text-slate-700 text-sm md:text-base">
+                      <span className="md:hidden text-slate-400 font-normal text-xs mr-1">
+                        Pedido:
+                      </span>
                       {order.orderNumber || order.order?.number || "S/N"}
                     </td>
-                    <td className="p-4 text-slate-600">
+
+                    {/* 3. CLIENTE (Mobile: Abaixo do Pedido) */}
+                    <td className="block md:table-cell px-4 py-1 md:p-4 text-slate-600 font-medium">
                       {order.customerName ||
                         order.order?.customer?.name ||
                         "ND"}
                     </td>
-                    <td className="p-4">
-                      <span className="font-mono text-purple-600 bg-purple-50 px-2 py-1 rounded text-xs">
+
+                    {/* 4. SKU (Mobile: Tag) */}
+                    <td className="block md:table-cell px-4 py-1 md:p-4">
+                      <span className="font-mono text-purple-600 bg-purple-50 px-2 py-1 rounded text-xs font-bold">
                         {order.sku}
                       </span>
                     </td>
-                    <td className="p-4">
-                      <span className="bg-gray-100 px-2 py-1 rounded-full text-xs font-medium">
+
+                    {/* 5. STATUS (Mobile: Tag) */}
+                    <td className="block md:table-cell px-4 py-2 md:p-4">
+                      <span className="bg-gray-100 px-2 py-1 rounded-full text-xs font-medium text-slate-600">
                         {order.status}
                       </span>
                     </td>
-                    <td className="p-4 text-right text-slate-400 text-xs italic group-hover:text-purple-600">
-                      Ver detalhes →
+
+                    {/* 6. AÇÃO (Mobile: Botão visível) */}
+                    <td className="block md:table-cell px-4 py-3 md:p-4 text-right text-slate-400 text-xs italic group-hover:text-purple-600 border-t md:border-0 mt-2 md:mt-0 bg-slate-50 md:bg-transparent rounded-b-xl md:rounded-none">
+                      <span className="md:hidden font-bold flex items-center justify-center gap-1">
+                        Ver Detalhes <ArrowRight size={12} />
+                      </span>
+                      <span className="hidden md:inline">Ver detalhes →</span>
                     </td>
                   </tr>
                 ))}
+
                 {orders.length === 0 && !loading && (
                   <tr>
-                    <td colSpan="6" className="p-10 text-center text-slate-400">
+                    <td
+                      colSpan="6"
+                      className="p-10 text-center text-slate-400 block md:table-cell"
+                    >
                       {isSearching
                         ? "Nenhum resultado encontrado."
                         : "Arquivo vazio."}

@@ -17,7 +17,7 @@ import {
   KANBAN_ORDER,
 } from "../../config/productionStatuses";
 
-// Helper de formatação de data (mesmo da Lista)
+// Helper de formatação de data
 const getIsoDate = (val) => {
   if (!val) return "";
   if (val.toDate) return val.toDate().toISOString().split("T")[0];
@@ -37,16 +37,13 @@ export default function ProductionCard({
   onDelete,
   onMoveStatus,
   onToggleTransit,
-  onUpdateDate, // <--- Recebendo a função de salvar
-  findCatalogItem, // Se precisar mostrar nome do produto
+  onUpdateDate,
+  findCatalogItem,
 }) {
-  // --- ESTADOS DE EDIÇÃO DA DATA ---
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [tempDate, setTempDate] = useState("");
 
-  const catalog = findCatalogItem ? findCatalogItem(order.sku) : null;
-
-  // Lógica visual de specs (igual a lista)
+  // Lógica visual de specs
   const isDivergent =
     order.specs?.standardColor &&
     order.specs?.stoneColor &&
@@ -72,7 +69,6 @@ export default function ProductionCard({
   const saveDate = async (e) => {
     e.stopPropagation();
     if (onUpdateDate) {
-      // Chama a função da Tab -> Service -> Firestore
       await onUpdateDate(order.id, tempDate);
     }
     setIsEditingDate(false);
@@ -138,7 +134,7 @@ export default function ProductionCard({
           </div>
 
           {/* Tags de Status (Estoque, PE, Impresso) */}
-          <div className="flex items-center gap-1 mt-1">
+          <div className="flex flex-wrap items-center gap-1 mt-1">
             {order.fromStock && !order.isPE && (
               <div
                 className="bg-emerald-700 text-white text-[8px] font-bold px-1 rounded cursor-help"
@@ -155,10 +151,10 @@ export default function ProductionCard({
                 <Layers size={8} /> PE
               </div>
             )}
-            {item.isInterceptedPE && (
-              <div className="mb-2 bg-orange-50 border border-orange-200 text-orange-800 text-[10px] font-bold px-2 py-1 rounded flex items-center gap-2">
-                <Layers size={12} className="text-orange-600" />
-                <span>ESTOQUE INTERCEPTADO NA FÁBRICA</span>
+            {order.isInterceptedPE && (
+              <div className="bg-orange-50 border border-orange-200 text-orange-800 text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1">
+                <Layers size={10} className="text-orange-600" />
+                <span>INTERCEPTADO</span>
               </div>
             )}
             {order.printed && (
@@ -169,51 +165,58 @@ export default function ProductionCard({
                 I
               </div>
             )}
-            <span className="font-mono text-[10px] font-bold text-blue-600 bg-blue-50 px-1 rounded truncate max-w-[120px]">
+            <span className="font-mono text-[10px] font-bold text-blue-600 bg-blue-50 px-1 rounded">
               {order.sku}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Cliente */}
-      <div className="text-xs text-slate-700 font-bold truncate">
+      {/* Cliente (SEM TRUNCATE - Quebra linha) */}
+      <div className="text-xs text-slate-700 font-bold whitespace-normal break-words leading-tight pr-2">
         {order.order?.customer?.name || "Cliente S/ Nome"}
       </div>
 
       {/* Specs Box */}
       <div className="bg-slate-50 p-2 rounded text-[10px] space-y-1.5 border border-slate-100 text-slate-600">
-        <div className="flex justify-between border-b border-slate-200 pb-1">
-          <span className="font-bold">Aro: {order.specs?.size || "-"}</span>
-          <span className="truncate max-w-[80px]">
+        {/* Aro e Tipo de Pedra */}
+        <div className="flex flex-wrap justify-between border-b border-slate-200 pb-1 gap-1">
+          <span className="font-bold whitespace-nowrap">
+            Aro: {order.specs?.size || "-"}
+          </span>
+          <span className="whitespace-normal break-words text-right leading-tight">
             {order.specs?.stoneType || "-"}
           </span>
         </div>
 
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400">Cor:</span>
-          <span
-            className={`font-bold truncate ${
-              isDivergent ? "text-amber-600" : ""
-            }`}
-          >
-            {order.specs?.stoneColor || "-"}
-          </span>
-          {isDivergent && (
-            <AlertTriangle size={10} className="text-amber-500" />
-          )}
+        {/* Cor da Pedra */}
+        <div className="flex items-start gap-1">
+          <span className="text-slate-400 whitespace-nowrap">Cor:</span>
+          <div className="flex flex-wrap items-center gap-1">
+            <span
+              className={`font-bold whitespace-normal break-words leading-tight ${
+                isDivergent ? "text-amber-600" : ""
+              }`}
+            >
+              {order.specs?.stoneColor || "-"}
+            </span>
+            {isDivergent && (
+              <AlertTriangle size={10} className="text-amber-500 shrink-0" />
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400">Fin:</span>
-          <span className="font-bold truncate">
+        {/* Acabamento */}
+        <div className="flex items-start gap-1">
+          <span className="text-slate-400 whitespace-nowrap">Fin:</span>
+          <span className="font-bold whitespace-normal break-words leading-tight">
             {order.specs?.finishing || "-"}
           </span>
         </div>
 
-        {/* Lote da Pedra (NOVO) */}
+        {/* Lote da Pedra */}
         {order.specs?.stoneBatch && (
-          <div className="flex items-center gap-1 bg-blue-100/50 px-1 rounded">
+          <div className="flex items-center gap-1 bg-blue-100/50 px-1 rounded w-fit">
             <span className="text-slate-400">Lote:</span>
             <span className="font-mono font-bold text-blue-700">
               {order.specs.stoneBatch}
@@ -221,8 +224,9 @@ export default function ProductionCard({
           </div>
         )}
 
+        {/* Gravação (Quebra linha e usa aspas) */}
         {order.specs?.engraving && order.specs.engraving !== "ND" && (
-          <div className="pt-1 text-purple-700 font-mono italic text-[9px] border-t border-slate-200 truncate">
+          <div className="pt-1 text-purple-700 font-mono italic text-[9px] border-t border-slate-200 whitespace-normal break-words leading-tight">
             "{order.specs.engraving}"
           </div>
         )}
@@ -237,7 +241,6 @@ export default function ProductionCard({
       {/* Footer: Ações */}
       <div className="pt-1 border-t flex justify-between items-center mt-auto">
         <div className="flex items-center gap-1">
-          {/* Toggle de Trânsito */}
           <TransitToggle order={order} onToggle={onToggleTransit} />
 
           <button

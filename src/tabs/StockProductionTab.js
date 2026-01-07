@@ -328,9 +328,10 @@ export default function StockProductionTab({ user, findCatalogItem }) {
     PE_STATUSES.find((s) => s.id === activeTab) || PE_STATUSES[0];
 
   return (
-    <div className="flex h-[calc(100vh-64px)] w-full overflow-hidden bg-slate-50">
-      {/* SIDEBAR */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
+    // 1. ALTERAÇÃO PRINCIPAL: 'flex-col' no mobile, 'md:flex-row' no PC
+    <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] w-full overflow-hidden bg-slate-50">
+      {/* --- SIDEBAR (VISÍVEL APENAS NO DESKTOP) --- */}
+      <aside className="hidden md:flex w-64 bg-white border-r border-slate-200 flex-col shrink-0">
         <div className="p-4 border-b border-slate-100">
           <h2 className="font-bold text-slate-700 flex items-center gap-2">
             <Layers size={18} /> Estoque Fábrica
@@ -365,12 +366,41 @@ export default function StockProductionTab({ user, findCatalogItem }) {
         </div>
       </aside>
 
-      {/* ÁREA PRINCIPAL */}
+      {/* --- MENU MOBILE (O "SEGUNDO SANDUÍCHE") --- */}
+      {/* Agora ele fica empilhado no topo graças ao flex-col do pai */}
+      <div className="md:hidden bg-slate-100 border-b border-slate-200 p-3 shrink-0 z-10">
+        <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+          <Layers size={12} /> Filtrar Etapa:
+        </label>
+        <div className="relative">
+          <select
+            value={activeTab}
+            onChange={(e) => {
+              setActiveTab(e.target.value);
+              setSelectedIds(new Set());
+            }}
+            // Fundo branco para destacar do fundo cinza do header
+            className="w-full appearance-none bg-white border border-slate-300 text-slate-800 text-sm font-bold rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-purple-500 shadow-sm"
+          >
+            {PE_STATUSES.map((status) => (
+              <option key={status.id} value={status.id}>
+                {status.label} ({counts[status.id] || 0})
+              </option>
+            ))}
+          </select>
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+            <Layers size={16} />
+          </div>
+        </div>
+      </div>
+
+      {/* --- ÁREA PRINCIPAL --- */}
       <main className="flex-1 flex flex-col min-w-0 relative">
-        {/* HEADER */}
+        {/* HEADER DA TAB (Busca e Adicionar) */}
         <div className="bg-white border-b border-slate-200 p-4 shrink-0 space-y-4">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
+            {/* Título (Escondido no mobile para economizar espaço vertical) */}
+            <div className="hidden md:block">
               <h1 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <span
                   className={`w-3 h-3 rounded-full ${currentConfig.bg.replace(
@@ -385,25 +415,25 @@ export default function StockProductionTab({ user, findCatalogItem }) {
               </p>
             </div>
 
-            <div className="flex gap-2 w-full md:w-auto items-center">
+            <div className="flex flex-col w-full md:flex-row gap-2 md:w-auto items-center">
               {/* FORMULÁRIO DE ADICIONAR */}
               <form
                 onSubmit={handleAddItem}
-                className="flex gap-1 items-center bg-slate-50 p-1 rounded-lg border border-slate-200 shadow-sm"
+                className="flex gap-1 items-center bg-slate-50 p-1 rounded-lg border border-slate-200 shadow-sm w-full md:w-auto"
               >
-                <div className="relative">
+                <div className="relative flex-1 md:flex-none">
                   <PackagePlus
                     className="absolute left-2 top-1/2 -translate-y-1/2 text-purple-400"
                     size={14}
                   />
                   <input
-                    className="pl-7 pr-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:border-purple-500 w-28 uppercase font-bold bg-white"
+                    className="pl-7 pr-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:border-purple-500 w-full md:w-28 uppercase font-bold bg-white"
                     placeholder="SKU..."
                     value={newSku}
                     onChange={(e) => setNewSku(e.target.value)}
                   />
                 </div>
-                <div className="relative">
+                <div className="relative w-20 md:w-auto">
                   <Hash
                     className="absolute left-2 top-1/2 -translate-y-1/2 text-purple-400"
                     size={12}
@@ -411,8 +441,7 @@ export default function StockProductionTab({ user, findCatalogItem }) {
                   <input
                     type="number"
                     min="1"
-                    max="100"
-                    className="pl-6 pr-1 py-1.5 border border-slate-300 rounded text-xs outline-none focus:border-purple-500 w-14 font-bold text-center bg-white"
+                    className="pl-6 pr-1 py-1.5 border border-slate-300 rounded text-xs outline-none focus:border-purple-500 w-full md:w-14 font-bold text-center bg-white"
                     value={newQty}
                     onChange={(e) => setNewQty(e.target.value)}
                   />
@@ -421,7 +450,6 @@ export default function StockProductionTab({ user, findCatalogItem }) {
                   type="submit"
                   disabled={isAdding}
                   className="bg-purple-600 text-white p-1.5 rounded hover:bg-purple-700 shadow-sm disabled:opacity-50 transition-colors"
-                  title="Adicionar Lote"
                 >
                   {isAdding ? (
                     <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
@@ -431,9 +459,8 @@ export default function StockProductionTab({ user, findCatalogItem }) {
                 </button>
               </form>
 
-              <div className="w-px h-8 bg-slate-200 mx-2 hidden md:block"></div>
-
-              <div className="relative w-48 md:w-56">
+              {/* BUSCA */}
+              <div className="relative w-full md:w-56">
                 <Search
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                   size={14}
@@ -450,65 +477,64 @@ export default function StockProductionTab({ user, findCatalogItem }) {
 
           {/* BARRA DE AÇÃO EM MASSA */}
           {selectedIds.size > 0 && (
-            <div className="flex items-center gap-3 bg-purple-50 border border-purple-100 p-2 rounded-lg animate-fade-in shadow-sm">
-              <div className="flex items-center gap-2 px-2 border-r border-purple-200">
+            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 bg-purple-50 border border-purple-100 p-2 rounded-lg animate-fade-in shadow-sm">
+              <div className="flex items-center gap-2 px-2 md:border-r border-purple-200 mb-2 md:mb-0">
                 <BoxSelect size={18} className="text-purple-600" />
                 <span className="text-xs font-bold text-purple-900">
                   {selectedIds.size} selecionados
                 </span>
               </div>
 
-              <div className="flex items-center gap-2 flex-1">
-                {/* --- BOTÃO NOVO: DELETAR EM MASSA --- */}
+              <div className="flex flex-wrap items-center gap-2 flex-1">
                 <button
                   onClick={handleBatchDelete}
-                  className="bg-red-100 text-red-700 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition-colors flex items-center gap-2 mr-2 border border-red-200 hover:border-red-600"
-                  title="Excluir Selecionados"
+                  className="bg-red-100 text-red-700 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition-colors flex items-center gap-2 border border-red-200 hover:border-red-600 grow md:grow-0 justify-center"
                 >
-                  <Trash2 size={14} /> Excluir
+                  <Trash2 size={14} />{" "}
+                  <span className="md:hidden">Excluir</span>
                 </button>
-                {/* ------------------------------------ */}
 
                 <button
                   onClick={handleBatchPrint}
-                  className="bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-900 flex items-center gap-2 shadow-sm transition-colors mr-auto" // Adicionei mr-auto para empurrar o resto para a direita
-                  title="Imprimir Etiquetas"
+                  className="bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-900 flex items-center gap-2 shadow-sm transition-colors grow md:grow-0 justify-center"
                 >
-                  <Printer size={14} /> Imprimir
+                  <Printer size={14} />{" "}
+                  <span className="md:hidden">Imprimir</span>
                 </button>
 
-                {/* Bloco de Mover (Mantido igual) */}
-                <span className="text-xs text-purple-700 font-medium ml-4 border-l border-purple-200 pl-4">
-                  Mover para:
-                </span>
-                <select
-                  className="p-1.5 rounded border border-purple-200 text-xs font-bold text-slate-700 outline-none w-40 bg-white cursor-pointer"
-                  value={targetStatus}
-                  onChange={(e) => setTargetStatus(e.target.value)}
-                >
-                  <option value="">Destino...</option>
-                  {PE_STATUSES.filter((s) => s.id !== activeTab).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2 w-full md:w-auto md:ml-auto mt-2 md:mt-0">
+                  <span className="text-xs text-purple-700 font-medium hidden md:inline">
+                    Mover:
+                  </span>
+                  <select
+                    className="p-1.5 rounded border border-purple-200 text-xs font-bold text-slate-700 outline-none flex-1 md:w-40 bg-white cursor-pointer"
+                    value={targetStatus}
+                    onChange={(e) => setTargetStatus(e.target.value)}
+                  >
+                    <option value="">Destino...</option>
+                    {PE_STATUSES.filter((s) => s.id !== activeTab).map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
 
-                <button
-                  onClick={handleBulkMove}
-                  disabled={!targetStatus}
-                  className="bg-purple-600 text-white px-4 py-1.5 rounded text-xs font-bold hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2 shadow-sm transition-colors"
-                >
-                  <ArrowRight size={14} /> Mover
-                </button>
+                  <button
+                    onClick={handleBulkMove}
+                    disabled={!targetStatus}
+                    className="bg-purple-600 text-white px-4 py-1.5 rounded text-xs font-bold hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2 shadow-sm transition-colors"
+                  >
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           )}
         </div>
 
         {/* LISTA */}
-        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
-          <div className="flex items-center gap-4 px-4 py-2 mb-2 text-xs font-bold text-slate-400 uppercase">
+        <div className="flex-1 overflow-y-auto p-2 md:p-4 custom-scrollbar bg-slate-50/50">
+          <div className="flex items-center gap-4 px-2 md:px-4 py-2 mb-2 text-xs font-bold text-slate-400 uppercase">
             <button
               onClick={toggleSelectAll}
               className="flex items-center gap-2 hover:text-slate-600 transition-colors"
@@ -521,10 +547,10 @@ export default function StockProductionTab({ user, findCatalogItem }) {
               )}
               Selecionar Todos
             </button>
-            <span>Detalhes do Item</span>
+            <span className="hidden md:inline">Detalhes do Item</span>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 pb-20">
             {filteredItems.map((item) => {
               const catalogItem = findCatalogItem
                 ? findCatalogItem(item.sku)
@@ -534,16 +560,16 @@ export default function StockProductionTab({ user, findCatalogItem }) {
               return (
                 <div
                   key={item.id}
-                  className={`bg-white border p-3 rounded-lg flex items-center justify-between shadow-sm hover:shadow-md transition-all cursor-pointer ${
+                  className={`bg-white border p-3 rounded-lg flex flex-col md:flex-row md:items-center justify-between shadow-sm hover:shadow-md transition-all cursor-pointer ${
                     isSelected
                       ? "border-purple-400 bg-purple-50 ring-1 ring-purple-400"
                       : "border-slate-200"
                   } ${currentConfig.color} border-l-4`}
                   onClick={() => toggleSelectOne(item.id)}
                 >
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-start gap-3 mb-2 md:mb-0">
                     <div
-                      className="text-slate-400"
+                      className="mt-1 text-slate-400"
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleSelectOne(item.id);
@@ -556,18 +582,21 @@ export default function StockProductionTab({ user, findCatalogItem }) {
                       )}
                     </div>
 
-                    <div
-                      className={`h-10 w-10 rounded flex items-center justify-center text-[10px] font-bold ${currentConfig.bg} ${currentConfig.text}`}
-                    >
-                      EP
-                    </div>
                     <div>
                       <div className="flex items-center gap-2">
+                        {/* Tag EP visível no mobile */}
+                        <div className="md:hidden">
+                          <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${currentConfig.bg} ${currentConfig.text}`}
+                          >
+                            EP
+                          </span>
+                        </div>
                         <span className="font-bold text-blue-600">
                           {item.sku}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 truncate w-64">
+                      <p className="text-xs text-slate-500 truncate w-full md:w-64">
                         {item.name ||
                           catalogItem?.name ||
                           "Produto sem cadastro"}
@@ -576,11 +605,11 @@ export default function StockProductionTab({ user, findCatalogItem }) {
                   </div>
 
                   <div
-                    className="flex items-center gap-6"
+                    className="flex items-center justify-between md:justify-end gap-6 pl-8 md:pl-0"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="text-right hidden md:block">
-                      <span className="text-[10px] text-slate-400 block">
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 block md:hidden">
                         Criado em
                       </span>
                       <span className="text-xs font-bold text-slate-600">
@@ -613,19 +642,20 @@ export default function StockProductionTab({ user, findCatalogItem }) {
               </div>
             )}
           </div>
-          {/* --- AQUI É O LUGAR DO MODAL --- */}
-          {showPrintModal && (
-            <TextModal
-              title={`Etiquetas de Estoque (${selectedIds.size})`}
-              content={printContent}
-              onClose={() => {
-                setShowPrintModal(false);
-                setPrintContent(""); // Limpa o texto ao fechar
-              }}
-            />
-          )}
         </div>
       </main>
+
+      {/* --- AQUI É O LUGAR DO MODAL (FORA DO SCROLL DA MAIN) --- */}
+      {showPrintModal && (
+        <TextModal
+          title={`Etiquetas de Estoque (${selectedIds.size})`}
+          content={printContent}
+          onClose={() => {
+            setShowPrintModal(false);
+            setPrintContent("");
+          }}
+        />
+      )}
     </div>
   );
 }

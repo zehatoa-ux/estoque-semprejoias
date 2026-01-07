@@ -338,7 +338,7 @@ export default function StockTab({
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full">
-      {/* --- MODAIS --- */}
+      {/* --- MODAIS (Mantidos) --- */}
       <EditModal
         isOpen={!!editModal}
         data={editModal}
@@ -375,19 +375,19 @@ export default function StockTab({
         </div>
       )}
 
-      {/* --- HEADER --- */}
-      <div className="p-4 border-b flex flex-col gap-4">
+      {/* --- HEADER (Responsivo) --- */}
+      <div className="p-4 border-b flex flex-col gap-4 shrink-0">
         {/* Métricas */}
-        <div className="flex gap-4 text-xs font-bold uppercase tracking-wider">
-          <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded border border-emerald-100">
+        <div className="flex gap-4 text-xs font-bold uppercase tracking-wider overflow-x-auto pb-1 no-scrollbar">
+          <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded border border-emerald-100 whitespace-nowrap">
             <CheckCircle size={14} /> Físico: {totalStock}
           </div>
-          <div className="flex items-center gap-2 text-orange-600 bg-orange-50 px-3 py-1.5 rounded border border-orange-100">
+          <div className="flex items-center gap-2 text-orange-600 bg-orange-50 px-3 py-1.5 rounded border border-orange-100 whitespace-nowrap">
             <Layers size={14} /> Fábrica: {totalPE}
           </div>
         </div>
 
-        <div className="flex justify-between gap-4 flex-col md:flex-row items-center">
+        <div className="flex justify-between gap-4 flex-col lg:flex-row items-start lg:items-center">
           <div className="relative flex-1 w-full">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -396,7 +396,7 @@ export default function StockTab({
             <input
               type="text"
               placeholder="Pesquisar SKU, Nome ou Modelo..."
-              className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg outline-none focus:border-blue-500"
+              className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg outline-none focus:border-blue-500 text-sm"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -412,11 +412,13 @@ export default function StockTab({
               </button>
             )}
           </div>
-          <div className="flex gap-2 w-full md:w-auto">
+
+          {/* Botões de Ação (Wrap no mobile) */}
+          <div className="flex flex-wrap gap-2 w-full lg:w-auto">
             {selectedSkus.size > 0 && (
               <button
                 onClick={handleBulkDelete}
-                className="bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-red-200"
+                className="bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-red-200 grow justify-center"
               >
                 <Trash2 size={16} /> Excluir ({selectedSkus.size})
               </button>
@@ -425,7 +427,7 @@ export default function StockTab({
             <button
               onClick={onRefreshCatalog}
               disabled={loadingCatalog}
-              className="p-2.5 border rounded-lg hover:bg-slate-50"
+              className="p-2.5 border rounded-lg hover:bg-slate-50 shrink-0"
               title="Recarregar Catálogo"
             >
               <RefreshCw
@@ -433,21 +435,25 @@ export default function StockTab({
                 className={loadingCatalog ? "animate-spin" : ""}
               />
             </button>
-            <div className="flex border rounded-lg overflow-hidden">
+
+            <div className="flex border rounded-lg overflow-hidden shrink-0">
               <button
                 onClick={handleExportXLSX}
-                className="px-3 py-2 bg-white hover:bg-green-50 text-green-600 border-r text-xs font-medium"
+                className="px-3 py-2 bg-white hover:bg-green-50 text-green-600 border-r text-xs font-medium flex items-center gap-1"
               >
-                <FileSpreadsheet size={16} /> XLSX
+                <FileSpreadsheet size={16} />{" "}
+                <span className="hidden sm:inline">XLSX</span>
               </button>
               <button
                 onClick={handleExportPDF}
-                className="px-3 py-2 bg-white hover:bg-red-50 text-red-600 text-xs font-medium"
+                className="px-3 py-2 bg-white hover:bg-red-50 text-red-600 text-xs font-medium flex items-center gap-1"
               >
-                <FileText size={16} /> PDF
+                <FileText size={16} />{" "}
+                <span className="hidden sm:inline">PDF</span>
               </button>
             </div>
-            <div className="relative w-48">
+
+            <div className="relative w-full sm:w-48 grow sm:grow-0">
               <Filter
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                 size={16}
@@ -472,10 +478,11 @@ export default function StockTab({
         </div>
       </div>
 
-      {/* --- TABELA --- */}
-      <div className="flex-1 overflow-auto custom-scrollbar">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-slate-50 border-b text-xs uppercase text-slate-500 font-bold sticky top-0 z-10">
+      {/* --- TABELA RESPONSIVA (TABLE TO CARD) --- */}
+      <div className="flex-1 overflow-auto custom-scrollbar p-2 md:p-0">
+        <table className="w-full text-left border-collapse block md:table">
+          {/* THEAD (Hidden Mobile) */}
+          <thead className="bg-slate-50 border-b text-xs uppercase text-slate-500 font-bold sticky top-0 z-10 hidden md:table-header-group">
             <tr>
               <th className="px-4 py-3 w-10 text-center bg-slate-50">
                 <input
@@ -519,26 +526,40 @@ export default function StockTab({
               <th className="px-4 py-3 text-center bg-slate-50">Ações</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+
+          <tbody className="block md:table-row-group space-y-3 md:space-y-0 pb-20">
             {paginatedData.map((group, idx) => (
               <tr
                 key={idx}
-                className={`hover:bg-blue-50/30 ${
-                  selectedSkus.has(group.sku) ? "bg-blue-50" : ""
-                }`}
+                className={`
+                  block md:table-row 
+                  relative 
+                  bg-white 
+                  border border-slate-200 md:border-b md:border-slate-100 rounded-xl md:rounded-none 
+                  shadow-sm md:shadow-none 
+                  hover:bg-blue-50/30 
+                  transition-all
+                  ${
+                    selectedSkus.has(group.sku)
+                      ? "bg-blue-50 ring-1 ring-blue-400 md:ring-0"
+                      : ""
+                  }
+                `}
               >
-                <td className="px-4 py-3 text-center">
+                {/* 1. CHECKBOX (Absoluto no Mobile - Topo Esquerdo) */}
+                <td className="block md:table-cell px-4 py-3 text-center absolute top-0 left-0 md:static z-10 p-3 md:p-0">
                   <input
                     type="checkbox"
                     checked={selectedSkus.has(group.sku)}
                     onChange={() => toggleSelectOne(group.sku)}
-                    className="w-4 h-4 rounded"
+                    className="w-5 h-5 md:w-4 md:h-4 rounded"
                   />
                 </td>
 
-                <td className="px-4 py-3">
+                {/* 2. FOTO (Mobile: Esquerda) */}
+                <td className="block md:table-cell px-4 pt-10 pb-2 md:py-3 md:pt-3">
                   <div
-                    className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center overflow-hidden cursor-pointer"
+                    className="w-16 h-16 md:w-10 md:h-10 rounded bg-slate-100 flex items-center justify-center overflow-hidden cursor-pointer border border-slate-200 md:border-0"
                     onClick={() => group.image && setZoomedImage(group.image)}
                   >
                     {group.image ? (
@@ -548,12 +569,14 @@ export default function StockTab({
                         alt=""
                       />
                     ) : (
-                      <Package size={16} className="text-slate-300" />
+                      <Package size={20} className="text-slate-300" />
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-3">
-                  <span className="font-mono text-blue-600 font-bold text-xs">
+
+                {/* 3. SKU (Mobile: Ao lado da foto) */}
+                <td className="block md:table-cell px-4 py-1 md:py-3 absolute top-10 left-20 md:static md:top-auto md:left-auto">
+                  <span className="font-mono text-blue-600 font-bold text-sm md:text-xs">
                     {group.sku}
                   </span>
                   {group.reservedQuantity > 0 && (
@@ -565,40 +588,47 @@ export default function StockTab({
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3">
-                  <div className="text-slate-700 text-xs font-medium line-clamp-1">
+
+                {/* 4. NOME E PREÇO (Mobile: Abaixo do SKU) */}
+                <td className="block md:table-cell px-4 py-1 md:py-3 md:pl-0 pl-[5.5rem] -mt-8 md:mt-0 mb-4 md:mb-0">
+                  <div className="text-slate-700 text-xs font-medium line-clamp-2 md:line-clamp-1">
                     {group.name}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 mt-1">
                     <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">
                       {formatMoney(group.price)}
                     </span>
-                    <span className="text-[10px] text-slate-400">
-                      {group.baseSku} • {group.model}
+                    <span className="text-[10px] text-slate-400 truncate max-w-[100px]">
+                      {group.model}
                     </span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-xs text-slate-500">
+
+                {/* 5. MODIFICAÇÃO (Mobile: Escondido ou simplificado) */}
+                <td className="hidden md:table-cell px-4 py-3 text-xs text-slate-500">
                   <div className="flex items-center gap-1">
                     <Calendar size={12} /> {group.lastModifiedStr || "-"}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-xs text-slate-500">
+
+                {/* 6. USUÁRIO (Mobile: Escondido) */}
+                <td className="hidden md:table-cell px-4 py-3 text-xs text-slate-500">
                   <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded w-fit">
                     <User size={10} /> {group.lastModifiedUser || "-"}
                   </div>
                 </td>
 
-                <td className="px-4 py-3 text-right">
-                  <div className="flex flex-col items-end gap-1">
-                    {group.qtyReal > 0 && (
+                {/* 7. DISPONIBILIDADE (Mobile: Topo Direito Absoluto) */}
+                <td className="block md:table-cell px-4 py-3 md:text-right absolute top-0 right-0 md:static p-3 md:p-0">
+                  <div className="flex flex-row md:flex-col items-center md:items-end gap-2 md:gap-1">
+                    {group.qtyReal > 0 ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                         {group.qtyReal}{" "}
                         <span className="text-[9px] uppercase font-normal text-emerald-600">
                           Disp.
                         </span>
                       </span>
-                    )}
+                    ) : null}
 
                     {group.qtyPE > 0 && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-orange-100 text-orange-800 border border-orange-200">
@@ -617,30 +647,36 @@ export default function StockTab({
                   </div>
                 </td>
 
-                <td className="px-4 py-3 text-center flex justify-center gap-1">
-                  <button
-                    onClick={() => setQuickResModal(group)}
-                    className="p-1.5 text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors shadow-sm"
-                    title="Reserva Rápida"
-                  >
-                    <Plus size={16} />
-                  </button>
+                {/* 8. AÇÕES (Mobile: Barra Inferior Full Width) */}
+                <td className="block md:table-cell px-4 py-2 md:py-3 text-center border-t md:border-0 bg-slate-50 md:bg-transparent rounded-b-xl md:rounded-none">
+                  <div className="flex gap-2 justify-center">
+                    <button
+                      onClick={() => setQuickResModal(group)}
+                      className="flex-1 md:flex-none p-1.5 text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors shadow-sm flex items-center justify-center gap-1 text-xs font-bold"
+                      title="Reserva Rápida"
+                    >
+                      <Plus size={16} />{" "}
+                      <span className="md:hidden">Reservar</span>
+                    </button>
 
-                  <button
-                    onClick={() => setEditModal(group)}
-                    className="p-1.5 text-slate-400 bg-slate-100 rounded hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                    title="Editar Estoque"
-                  >
-                    <Edit2 size={16} />
-                  </button>
+                    <button
+                      onClick={() => setEditModal(group)}
+                      className="flex-1 md:flex-none p-1.5 text-slate-600 bg-white border border-slate-300 rounded hover:bg-slate-50 hover:text-blue-600 transition-colors flex items-center justify-center gap-1 text-xs font-bold"
+                      title="Editar Estoque"
+                    >
+                      <Edit2 size={16} />{" "}
+                      <span className="md:hidden">Editar</span>
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
+
             {paginatedData.length === 0 && (
               <tr>
                 <td
                   colSpan="8"
-                  className="px-6 py-8 text-center text-slate-400"
+                  className="px-6 py-8 text-center text-slate-400 block md:table-cell"
                 >
                   Nenhum item encontrado.
                 </td>
@@ -650,7 +686,7 @@ export default function StockTab({
         </table>
       </div>
 
-      {/* --- PAGINAÇÃO --- */}
+      {/* --- PAGINAÇÃO (Responsiva) --- */}
       <div className="p-4 flex justify-between items-center bg-slate-50 text-xs text-slate-500 border-t shrink-0">
         <span>
           {(currentPage - 1) * itemsPerPage + 1}-

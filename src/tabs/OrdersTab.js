@@ -26,6 +26,8 @@ import { generateCertificatePDF } from "../utils/certificateGenerator";
 import { useOrderProcessing } from "../hooks/useOrderProcessing";
 import { useOrdersData } from "../hooks/useOrdersData";
 import { useOrderActions } from "../hooks/useOrderActions";
+import { logAction, MODULES, getSafeUser } from "../services/logService";
+import { useAuth } from "../contexts/AuthContext";
 
 // Configs
 import {
@@ -49,7 +51,8 @@ export default function OrdersTab({ findCatalogItem }) {
   const [filterUF, setFilterUF] = useState("all"); // Novo: Estado
   const [filterProdStatus, setFilterProdStatus] = useState("all"); // Novo: Status Prod.
 
-  const actions = useOrderActions();
+  const { user } = useAuth(); // Or however you access auth
+  const actions = useOrderActions(user);
 
   // Modais
   const [editingItem, setEditingItem] = useState(null);

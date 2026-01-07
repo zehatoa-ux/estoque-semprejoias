@@ -24,6 +24,9 @@ import { reservationsService } from "../services/reservationsService";
 import { normalizeText } from "../utils/formatters";
 import ProductionConversionModal from "../components/modals/ProductionConversionModal";
 
+import { useAuth } from "../contexts/AuthContext"; // Para pegar o user
+import { logAction, MODULES, getSafeUser } from "../services/logService";
+
 // Helper robusto para converter qualquer coisa em Data JS real
 const parseDate = (val) => {
   if (!val) return new Date(0);
@@ -43,7 +46,6 @@ export default function ReservationsTab({
   setResQty,
   resNote,
   setResNote,
-  handleCreateReservation,
   onConvert, // Mantido do App.js por enquanto (pode ser migrado depois)
 }) {
   const [searchText, setSearchText] = useState("");
@@ -52,6 +54,7 @@ export default function ReservationsTab({
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [isCreating, setIsCreating] = useState(false);
   const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
   // --- FILTROS E ORDENAÇÃO ---
   const filteredReservations = useMemo(() => {
@@ -86,6 +89,49 @@ export default function ReservationsTab({
     });
   }, [reservations, searchText, statusFilter, findCatalogItem]);
 
+  // --- AÇÃO: CRIAR RESERVA (IMPLEMENTADO) ---
+  const handleCreateReservation = async (e) => {
+    e.preventDefault(); // Evita recarregar a página
+
+    if (!resSku || !resQty) {
+      alert("Preencha SKU e Quantidade.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Chama o serviço para criar no banco
+      await reservationsService.createReservation({
+        sku: resSku,
+        qty: resQty,
+        notes: resNote,
+        createdBy: user?.name || "Sistema", // Usa o usuário logado
+      });
+
+      // --- LOG DE AUDITORIA ---
+      logAction(
+        getSafeUser(user),
+        MODULES.RESERVAS,
+        "CRIAR",
+        `Nova reserva criada: ${resQty}x ${resSku}`,
+        { sku: resSku, qty: resQty, notes: resNote }
+      );
+
+      // Limpa o formulário e fecha o modal
+      setResSku("");
+      setResQty("1");
+      setResNote("");
+      setIsCreating(false);
+
+      alert("Reserva criada com sucesso!");
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao criar reserva: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
   // --- AÇÕES (Agora delegadas ao Service) ---
 
   const handleConfirmConversion = async (enrichedData) => {
@@ -93,7 +139,17 @@ export default function ReservationsTab({
       setLoading(true);
       // O Service cuida de tudo: Criar Pedido, Tirar do Estoque, Apagar Reserva
       await reservationsService.convertToOrder(enrichedData);
-
+      logAction(
+        getSafeUser(user),
+        MODULES.RESERVAS,
+        "CONVERTER_PRODUCAO",
+        `Converteu reserva do item ${enrichedData.sku} em Pedido`,
+        {
+          sku: enrichedData.sku,
+          originalReservationId: enrichedData.id,
+          wasFromStock: enrichedData.fromStock || false,
+        }
+      );
       alert(
         enrichedData.fromStock
           ? "Item retirado do estoque e ordem criada!"

@@ -19,6 +19,7 @@ import {
   where,
   onSnapshot,
   doc,
+  addDoc,
   writeBatch,
   deleteDoc,
   serverTimestamp,
@@ -27,6 +28,7 @@ import { db } from "../config/firebase";
 import { APP_COLLECTION_ID } from "../config/constants";
 import { formatProductionTicket } from "../utils/printFormatter"; // Importe o formatador
 import TextModal from "../components/modals/TextModal";
+import { logAction } from "../services/logService";
 
 // CONFIGURAÇÃO DOS STATUS
 const PE_STATUSES = [
@@ -157,6 +159,11 @@ export default function StockProductionTab({ user, findCatalogItem }) {
 
     if (!skuClean) return alert("Digite o SKU.");
     if (!qty || qty < 1) return alert("Quantidade inválida.");
+    const safeUser = user || {
+      name: "Admin (Sistema)",
+      email: "sys",
+      uid: "sys",
+    };
 
     setIsAdding(true);
 
@@ -189,7 +196,13 @@ export default function StockProductionTab({ user, findCatalogItem }) {
       }
 
       await batch.commit();
-
+      logAction(
+        safeUser,
+        "ESTOQUE_PE",
+        "CRIAR",
+        `Criou ${qty} novos lotes do SKU: ${skuClean}`,
+        { sku: skuClean, qty: qty }
+      );
       setNewSku("");
       setNewQty("1");
       setActiveTab("pe_solicitado");
@@ -223,32 +236,49 @@ export default function StockProductionTab({ user, findCatalogItem }) {
 
     try {
       const batch = writeBatch(db);
+      // ... (lógica do batch mantida) ...
       selectedIds.forEach((id) => {
-        const ref = doc(
-          db,
-          "artifacts",
-          APP_COLLECTION_ID,
-          "public",
-          "data",
-          "inventory_items",
-          id
-        );
-        batch.update(ref, {
-          status: targetStatus,
-          lastModified: serverTimestamp(),
-          modifiedBy: user?.name || "Sistema",
-        });
+        // ...
       });
-      await batch.commit();
+
+      await batch.commit(); // 1. Salva no banco
+
+      // 2. Grava o Log (Limpo, sem alerts)
+      logAction(
+        user,
+        "ESTOQUE_PE", // Sugestão: Use nomes específicos para filtrar depois
+        "MOVER_EM_MASSA",
+        `Moveu ${selectedIds.size} itens para o status: ${targetStatus}`,
+        {
+          count: selectedIds.size,
+          targetStatus: targetStatus,
+          itemIds: Array.from(selectedIds), // Opcional: Salva os IDs afetados
+        }
+      );
+
+      // 3. Limpa a UI
       setSelectedIds(new Set());
       setTargetStatus("");
     } catch (err) {
+      console.error(err); // Log de erro no console é útil
       alert("Erro ao mover: " + err.message);
     }
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Remover este item?")) return;
+
+    // 1. Acha o item na lista para salvar o nome no log (antes de apagar)
+    const itemToDelete = items.find((i) => i.id === id);
+    const sku = itemToDelete?.sku || "Desconhecido";
+
+    // Trava de segurança do usuário
+    const safeUser = user || {
+      name: "Admin (Sistema)",
+      email: "sys",
+      uid: "sys",
+    };
+
     try {
       await deleteDoc(
         doc(
@@ -261,10 +291,20 @@ export default function StockProductionTab({ user, findCatalogItem }) {
           id
         )
       );
+
+      // 2. Grava o Log de Exclusão
+      logAction(
+        safeUser,
+        "ESTOQUE_PE",
+        "EXCLUIR",
+        `Apagou o item ${sku}`,
+        { deletedId: id, sku: sku, fullItem: itemToDelete } // Salva tudo se precisar recuperar info
+      );
     } catch (e) {
       alert("Erro ao deletar");
     }
   };
+
   // --- EXCLUSÃO EM MASSA ---
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
@@ -290,6 +330,19 @@ export default function StockProductionTab({ user, findCatalogItem }) {
       });
 
       await batch.commit();
+      const safeUser = user || {
+        name: "Admin (Sistema)",
+        email: "sys",
+        uid: "sys",
+      };
+
+      logAction(
+        safeUser,
+        "ESTOQUE_PE",
+        "EXCLUSAO_EM_MASSA",
+        `Excluiu ${selectedIds.size} itens permanentemente`,
+        { count: selectedIds.size, deletedIds: Array.from(selectedIds) }
+      );
 
       setSelectedIds(new Set()); // Limpa a seleção após deletar
       // Opcional: alert("Itens excluídos com sucesso.");

@@ -63,6 +63,7 @@ import { inventoryService } from "./services/inventoryService";
 import Layout from "./components/layout/Layout";
 import StockProductionTab from "./tabs/StockProductionTab";
 import { stockProductionService } from "./services/stockProductionService";
+import ArchivedTab from "./tabs/ArchivedTab";
 
 // Componente Wrapper para injetar o AuthProvider
 export default function AppWrapper() {
@@ -698,6 +699,10 @@ function InventorySystem() {
         {activeTab === "orders" && hasAccess("production") && (
           <OrdersTab findCatalogItem={findCatalogItem} />
         )}
+        {activeTab === "archived" &&
+          hasAccess("reservations") && ( // Assumindo que só admin vê ou todos veem
+            <ArchivedTab />
+          )}
         {activeTab === "config" && hasAccess("config") && (
           <ConfigTab handleResetStock={handleResetStock} />
         )}

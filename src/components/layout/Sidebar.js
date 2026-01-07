@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
   X,
+  Archive,
   User, // Adicionei ícone de User para quando estiver fechado
 } from "lucide-react";
 
@@ -22,6 +23,7 @@ const TAB_ICONS = {
   orders: Truck,
   sales: Upload,
   reports: BarChart2,
+  archived: Archive,
   config: Settings,
 };
 
@@ -35,6 +37,7 @@ export const TAB_LABELS = {
   reports: "RELATÓRIOS",
   conference: "CONFERÊNCIA",
   sales: "BAIXA",
+  archived: "ARQUIVO",
   config: "CONFIG",
 };
 

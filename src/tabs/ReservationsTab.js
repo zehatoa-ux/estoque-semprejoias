@@ -103,10 +103,10 @@ export default function ReservationsTab({
 
       // Chama o serviço para criar no banco
       await reservationsService.createReservation({
-        sku: resSku,
-        qty: resQty,
+        sku: resSku.toUpperCase().trim(), // Normalize SKU (Uppercase + Trim)
+        quantity: Number(resQty), // <--- FORCE NUMBER TYPE HERE
         notes: resNote,
-        createdBy: user?.name || "Sistema", // Usa o usuário logado
+        createdBy: user?.name || "Sistema",
       });
 
       // --- LOG DE AUDITORIA ---

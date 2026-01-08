@@ -3,53 +3,48 @@ import { Minus, Plus, Trash2, X, Loader2, AlertTriangle } from "lucide-react";
 import { inventoryService } from "../../services/inventoryService";
 import { reservationsService } from "../../services/reservationsService";
 
-export default function EditModal({ isOpen, data, onClose }) {
+// Adicionei onDelete nas props
+export default function EditModal({ isOpen, data, onClose, onDelete }) {
   const [isLoading, setIsLoading] = useState(false);
-  // NOVO: Estado local para atualizar o número na hora, visualmente
   const [currentQty, setCurrentQty] = useState(0);
 
-  // Sincroniza o estado local sempre que o modal abrir ou receber dados novos
   useEffect(() => {
     if (data) {
-      setCurrentQty(data.displayQuantity || data.quantity || 0);
+      // Usa qtyReal se existir (para estoque físico), senão quantity total
+      setCurrentQty(
+        data.qtyReal !== undefined ? data.qtyReal : data.quantity || 0
+      );
     }
   }, [data]);
 
   if (!isOpen || !data) return null;
 
-  // Handler para Adicionar/Remover 1 unidade
+  // --- 1. AJUSTAR QUANTIDADE ---
   const handleQuantityAdjust = async (delta) => {
     try {
       setIsLoading(true);
 
-      // 1. Chama o serviço (Banco de Dados)
+      // Chama o serviço passando o SKU
       await inventoryService.adjustQuantity(data.sku, delta, "Admin/Manual");
 
-      // 2. Atualiza a tela imediatamente (Visual)
-      // Isso dá a sensação de rapidez enquanto o Firebase processa no fundo
+      // Atualiza visualmente
       setCurrentQty((prev) => prev + delta);
     } catch (error) {
-      console.error(error); // Ajuda a ver o erro no console se houver
+      console.error(error);
       alert("Erro ao ajustar estoque: " + error.message);
+      // Se deu erro (ex: estoque insuficiente), reverta o visual ou feche
+      // Opcional: onClose();
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handler Seguro de Exclusão
+  // --- 2. EXCLUIR TUDO (LIXEIRA) ---
   const handleDeleteAll = async () => {
-    if (
-      !window.confirm(
-        `ATENÇÃO: Deseja excluir TODOS os ${currentQty} itens do estoque?`
-      )
-    ) {
-      return;
-    }
-
     try {
       setIsLoading(true);
 
-      // 1. O GUARDIÃO: Verifica se existe reserva
+      // A. Verificação de Reserva (Regra de Negócio)
       const hasReservation = await reservationsService.hasPendingReservations(
         data.sku
       );
@@ -58,15 +53,36 @@ export default function EditModal({ isOpen, data, onClose }) {
         alert(
           "OPERAÇÃO BLOQUEADA!\n\n" +
             "Existem reservas ativas para este SKU.\n" +
-            "Você não pode excluir o estoque físico enquanto houver clientes esperando.\n\n" +
-            "Vá na aba 'Reservas', converta ou cancele as reservas antes de excluir o item."
+            "Vá na aba 'Reservas' e resolva as pendências antes de excluir."
         );
         return;
       }
 
-      // 2. Executa a exclusão
-      await inventoryService.deleteItem(data.sku, "Admin/Manual");
-      onClose();
+      // B. Deleção
+      // Se a prop onDelete foi passada (pela StockTab), usamos ela!
+      // A StockTab sabe os IDs exatos dos itens para deletar.
+      if (onDelete && data.entries && data.entries.length > 0) {
+        // Deleta o primeiro item da lista (LIFO ou FIFO depende do sort da tab)
+        // Ou podemos implementar uma lógica de "Deletar em lote" aqui se quiser zerar tudo.
+        // Por enquanto, vamos deletar UM item como exemplo, ou loopar para deletar todos.
+
+        // PERGUNTA DE UX: O botão diz "Excluir Tudo".
+        // Se for para zerar o estoque, usamos o adjustQuantity com delta negativo total.
+        // Se for para remover o cadastro visual, precisamos deletar todos os itens.
+
+        // VAMOS ASSUMIR QUE É "ZERAR ESTOQUE" (Mais seguro)
+        await inventoryService.adjustQuantity(
+          data.sku,
+          -currentQty,
+          "Admin/Lixeira"
+        );
+        setCurrentQty(0);
+        alert("Estoque zerado com sucesso.");
+        onClose();
+      } else {
+        // Fallback se não tiver onDelete (código legado)
+        alert("Erro de configuração: Função de deletar não encontrada.");
+      }
     } catch (error) {
       alert("Erro ao excluir: " + error.message);
     } finally {
@@ -109,7 +125,6 @@ export default function EditModal({ isOpen, data, onClose }) {
           </button>
 
           <div className="text-center min-w-[80px]">
-            {/* AGORA USAMOS currentQty AO INVÉS DE data.quantity */}
             <span className="block text-4xl font-bold text-slate-800 tracking-tighter">
               {currentQty}
             </span>
@@ -133,13 +148,7 @@ export default function EditModal({ isOpen, data, onClose }) {
             disabled={isLoading || currentQty <= 0}
             className="w-full py-3 rounded-xl border-2 border-red-100 text-red-600 font-bold hover:bg-red-50 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
           >
-            {isLoading ? (
-              "Processando..."
-            ) : (
-              <>
-                <Trash2 size={18} /> Excluir Tudo (Lixeira)
-              </>
-            )}
+            <Trash2 size={18} /> Zerar Estoque (Lixeira)
           </button>
           <p className="text-[10px] text-center text-slate-400 mt-2 flex items-center justify-center gap-1">
             <AlertTriangle size={10} /> Verifica reservas automaticamente

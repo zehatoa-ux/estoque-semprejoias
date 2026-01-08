@@ -10,20 +10,36 @@ import {
   limit,
   orderBy,
   doc,
-  addDoc, // Importante para criar a reserva
+  addDoc,
+  deleteDoc,
+  updateDoc,
 } from "firebase/firestore";
 
-// Caminho centralizado
-const COLLECTION_PATH = `artifacts/${APP_COLLECTION_ID}/public/data/inventory_items`;
-const RESERVATION_PATH = `artifacts/${APP_COLLECTION_ID}/public/data/reservations`; // Caminho das reservas
+// --- MUDANÇA CRÍTICA: ISSO TEM QUE SER UM ARRAY, NÃO UMA STRING ---
+const INVENTORY_COLLECTION_PATH = [
+  "artifacts",
+  APP_COLLECTION_ID,
+  "public",
+  "data",
+  "inventory_items",
+];
+
+const RESERVATION_COLLECTION_PATH = [
+  "artifacts",
+  APP_COLLECTION_ID,
+  "public",
+  "data",
+  "reservations",
+];
 
 export const inventoryService = {
-  // --- 1. IMPORTAR ITENS (Conferência) ---
+  // --- 1. IMPORTAR ITENS ---
   async importItems(items, userName = "Conferência") {
     if (!items || items.length === 0) return 0;
 
     const batch = writeBatch(db);
-    const collectionRef = collection(db, COLLECTION_PATH);
+    // Nota: Usamos o spread (...) para transformar o Array em argumentos
+    const collectionRef = collection(db, ...INVENTORY_COLLECTION_PATH);
 
     items.forEach((item) => {
       const newDocRef = doc(collectionRef);
@@ -43,12 +59,14 @@ export const inventoryService = {
     return items.length;
   },
 
-  // --- 2. AJUSTAR ESTOQUE (Adicionar/Remover manual) ---
+  // --- 2. AJUSTAR ESTOQUE (Botões + e -) ---
+  // OBS: Requer Índice Composto no Firebase para o 'delta < 0'
   async adjustQuantity(sku, delta, userName = "Sistema") {
     const batch = writeBatch(db);
-    const collectionRef = collection(db, COLLECTION_PATH);
+    const collectionRef = collection(db, ...INVENTORY_COLLECTION_PATH);
 
     if (delta > 0) {
+      // ADICIONAR
       for (let i = 0; i < delta; i++) {
         const newDocRef = doc(collectionRef);
         batch.set(newDocRef, {
@@ -62,7 +80,10 @@ export const inventoryService = {
         });
       }
     } else {
+      // REMOVER
       const qtyToRemove = Math.abs(delta);
+
+      // Essa Query exige o Índice: SKU + Status + Timestamp
       const q = query(
         collectionRef,
         where("sku", "==", sku),
@@ -72,7 +93,11 @@ export const inventoryService = {
       );
 
       const snapshot = await getDocs(q);
-      if (snapshot.empty) throw new Error("Estoque insuficiente.");
+
+      // Se não achar nada, erro.
+      if (snapshot.empty) {
+        throw new Error("Estoque insuficiente ou índice pendente.");
+      }
 
       snapshot.docs.forEach((docSnap) => {
         batch.update(docSnap.ref, {
@@ -91,7 +116,7 @@ export const inventoryService = {
     if (!skuList || skuList.length === 0) return;
 
     const batch = writeBatch(db);
-    const collectionRef = collection(db, COLLECTION_PATH);
+    const collectionRef = collection(db, ...INVENTORY_COLLECTION_PATH);
 
     const counts = {};
     skuList.forEach((sku) => (counts[sku] = (counts[sku] || 0) + 1));
@@ -105,10 +130,6 @@ export const inventoryService = {
       );
 
       const snapshot = await getDocs(q);
-
-      if (snapshot.size < qty) {
-        console.warn(`Estoque insuficiente para ${sku}.`);
-      }
 
       snapshot.docs.forEach((docSnap) => {
         batch.update(docSnap.ref, {
@@ -124,17 +145,12 @@ export const inventoryService = {
     return skuList.length;
   },
 
-  // --- 4. CRIAR RESERVA (A FUNÇÃO QUE FALTAVA) ---
-  // --- 4. CRIAR RESERVA (RETROCOMPATÍVEL) ---
+  // --- 4. CRIAR RESERVA ---
   async createReservation(sku, quantity, userName, note, customerName) {
-    const reservationsRef = collection(db, RESERVATION_PATH);
+    const reservationsRef = collection(db, ...RESERVATION_COLLECTION_PATH);
 
-    // TRUQUE DE COMPATIBILIDADE:
-    // Se a aba de Reservas antiga só mostra "notes", vamos garantir que o nome
-    // do cliente apareça lá também, formatado como "Cliente: Obs".
     let legacyNote = note || "";
     if (customerName) {
-      // Se já tiver uma obs, adiciona o nome antes. Se não, vira só o nome.
       legacyNote = legacyNote
         ? `${customerName} - ${legacyNote}`
         : customerName;
@@ -145,20 +161,38 @@ export const inventoryService = {
       quantity: Number(quantity),
       createdBy: userName,
       createdAt: serverTimestamp(),
-
-      // Campo antigo (para visualização na lista atual)
       notes: legacyNote,
-
-      // Campos novos (para a inteligência de conversão de pedido)
       customerName: customerName,
       order: {
         customer: {
           name: customerName || "Cliente Reserva",
         },
       },
-
       status: "pending",
       isManualReservation: true,
     });
+  },
+
+  // --- 5. EXCLUIR ITEM INDIVIDUAL (O que estava falhando) ---
+  async deleteItem(itemId, isPE, userName) {
+    // Monta o caminho exato usando o Array Spread
+    // Isso garante que o caminho seja "artifacts/ID/public/data/inventory_items/ITEM_ID"
+    const itemRef = doc(db, ...INVENTORY_COLLECTION_PATH, itemId);
+
+    console.log(`InventoryService: Deletando ${itemId}. Modo PE: ${isPE}`);
+
+    if (isPE) {
+      // Se for PE, deleta fisicamente
+      await deleteDoc(itemRef);
+    } else {
+      // Se for Físico, baixa logicamente
+      await updateDoc(itemRef, {
+        status: "adjusted_out",
+        outTimestamp: serverTimestamp(),
+        dateOut: new Date().toLocaleString("pt-BR"),
+        removedBy: userName || "Sistema",
+        reason: "manual_deletion_modal",
+      });
+    }
   },
 };

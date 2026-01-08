@@ -234,34 +234,62 @@ export default function StockProductionTab({ user, findCatalogItem }) {
     if (selectedIds.size === 0 || !targetStatus) return;
     if (!window.confirm(`Mover ${selectedIds.size} itens?`)) return;
 
+    // 1. Salva estado anterior para rollback em caso de erro (Opcional, mas boa prática)
+    const previousItems = [...items];
+
     try {
+      // 2. ATUALIZAÇÃO OTIMISTA (INSTANTÂNEA NA TELA)
+      setItems((prevItems) =>
+        prevItems.map((item) =>
+          selectedIds.has(item.id)
+            ? { ...item, status: targetStatus } // Muda o status localmente
+            : item
+        )
+      );
+
+      // 3. Executa no Banco
       const batch = writeBatch(db);
-      // ... (lógica do batch mantida) ...
+
+      // Importante: Precisamos iterar sobre selectedIds para adicionar ao batch
       selectedIds.forEach((id) => {
-        // ...
+        const ref = doc(
+          db,
+          "artifacts",
+          APP_COLLECTION_ID,
+          "public",
+          "data",
+          "inventory_items",
+          id
+        );
+        batch.update(ref, { status: targetStatus });
       });
 
-      await batch.commit(); // 1. Salva no banco
+      await batch.commit();
 
-      // 2. Grava o Log (Limpo, sem alerts)
+      // 4. Log
       logAction(
         user,
-        "ESTOQUE_PE", // Sugestão: Use nomes específicos para filtrar depois
+        "ESTOQUE_PE",
         "MOVER_EM_MASSA",
         `Moveu ${selectedIds.size} itens para o status: ${targetStatus}`,
         {
           count: selectedIds.size,
           targetStatus: targetStatus,
-          itemIds: Array.from(selectedIds), // Opcional: Salva os IDs afetados
+          itemIds: Array.from(selectedIds),
         }
       );
 
-      // 3. Limpa a UI
+      // 5. Limpa UI
       setSelectedIds(new Set());
       setTargetStatus("");
+
+      // Se você mudou o status para algo diferente da aba atual, os itens vão "sumir" da tela
+      // (filtrados pelo useMemo). Isso é o comportamento esperado e correto visualmente.
     } catch (err) {
-      console.error(err); // Log de erro no console é útil
+      console.error(err);
       alert("Erro ao mover: " + err.message);
+      // Rollback em caso de erro
+      setItems(previousItems);
     }
   };
 

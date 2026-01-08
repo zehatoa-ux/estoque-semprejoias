@@ -1,5 +1,5 @@
 // src/tabs/ReservationsTab.js
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react"; // Adicionei useEffect
 import {
   Search,
   Filter,
@@ -17,21 +17,21 @@ import {
   Save,
   CheckCircle,
   AlertTriangle,
+  ChevronDown, // Novo ícone para botão Carregar Mais
 } from "lucide-react";
 
-// --- MUDANÇA: Usamos o Service agora, não o Firestore direto ---
 import { reservationsService } from "../services/reservationsService";
 import { normalizeText } from "../utils/formatters";
 import ProductionConversionModal from "../components/modals/ProductionConversionModal";
 
-import { useAuth } from "../contexts/AuthContext"; // Para pegar o user
+import { useAuth } from "../contexts/AuthContext";
 import { logAction, MODULES, getSafeUser } from "../services/logService";
 
 // Helper robusto para converter qualquer coisa em Data JS real
 const parseDate = (val) => {
   if (!val) return new Date(0);
-  if (val.toDate) return val.toDate(); // Timestamp do Firebase
-  if (typeof val === "string") return new Date(val); // Texto ISO
+  if (val.toDate) return val.toDate();
+  if (typeof val === "string") return new Date(val);
   return new Date(val);
 };
 
@@ -39,14 +39,12 @@ export default function ReservationsTab({
   reservations,
   inventory = [],
   findCatalogItem,
-  // Props do App.js (Formulário de criação manual)
   resSku,
   setResSku,
   resQty,
   setResQty,
   resNote,
   setResNote,
-  onConvert, // Mantido do App.js por enquanto (pode ser migrado depois)
 }) {
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -56,9 +54,12 @@ export default function ReservationsTab({
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
-  // --- FILTROS E ORDENAÇÃO ---
+  // --- PAGINAÇÃO VISUAL (NOVO) ---
+  const ITEMS_PER_PAGE = 50;
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
+
+  // --- FILTROS E ORDENAÇÃO (MANTIDO) ---
   const filteredReservations = useMemo(() => {
-    // 1. Filtrar
     const filtered = reservations.filter((res) => {
       const matchesStatus =
         statusFilter === "all" || res.status === statusFilter;
@@ -81,7 +82,6 @@ export default function ReservationsTab({
       return matchesStatus && matchesSearch;
     });
 
-    // 2. Ordenar (O Mais recente no topo)
     return filtered.sort((a, b) => {
       const dateA = parseDate(a.createdAt);
       const dateB = parseDate(b.createdAt);
@@ -89,27 +89,34 @@ export default function ReservationsTab({
     });
   }, [reservations, searchText, statusFilter, findCatalogItem]);
 
-  // --- AÇÃO: CRIAR RESERVA (IMPLEMENTADO) ---
-  const handleCreateReservation = async (e) => {
-    e.preventDefault(); // Evita recarregar a página
+  // --- LÓGICA DE VISIBILIDADE (NOVO) ---
+  // Se mudar a busca, reseta a paginação para o topo
+  useEffect(() => {
+    setVisibleCount(ITEMS_PER_PAGE);
+  }, [searchText, statusFilter]);
 
+  const visibleReservations = filteredReservations.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredReservations.length;
+
+  const handleLoadMore = () => {
+    setVisibleCount((prev) => prev + ITEMS_PER_PAGE);
+  };
+
+  // --- AÇÕES (MANTIDAS) ---
+  const handleCreateReservation = async (e) => {
+    e.preventDefault();
     if (!resSku || !resQty) {
       alert("Preencha SKU e Quantidade.");
       return;
     }
-
     try {
       setLoading(true);
-
-      // Chama o serviço para criar no banco
       await reservationsService.createReservation({
-        sku: resSku.toUpperCase().trim(), // Normalize SKU (Uppercase + Trim)
-        quantity: Number(resQty), // <--- FORCE NUMBER TYPE HERE
+        sku: resSku.toUpperCase().trim(),
+        quantity: Number(resQty),
         notes: resNote,
         createdBy: user?.name || "Sistema",
       });
-
-      // --- LOG DE AUDITORIA ---
       logAction(
         getSafeUser(user),
         MODULES.RESERVAS,
@@ -117,13 +124,10 @@ export default function ReservationsTab({
         `Nova reserva criada: ${resQty}x ${resSku}`,
         { sku: resSku, qty: resQty, notes: resNote }
       );
-
-      // Limpa o formulário e fecha o modal
       setResSku("");
       setResQty("1");
       setResNote("");
       setIsCreating(false);
-
       alert("Reserva criada com sucesso!");
     } catch (error) {
       console.error(error);
@@ -132,12 +136,10 @@ export default function ReservationsTab({
       setLoading(false);
     }
   };
-  // --- AÇÕES (Agora delegadas ao Service) ---
 
   const handleConfirmConversion = async (enrichedData) => {
     try {
       setLoading(true);
-      // O Service cuida de tudo: Criar Pedido, Tirar do Estoque, Apagar Reserva
       await reservationsService.convertToOrder(enrichedData);
       logAction(
         getSafeUser(user),
@@ -182,9 +184,7 @@ export default function ReservationsTab({
 
     try {
       setLoading(true);
-      // Service deleta em lote
       await reservationsService.deleteReservations(Array.from(selectedIds));
-
       setSelectedIds(new Set());
       alert("Reservas excluídas.");
     } catch (e) {
@@ -235,7 +235,6 @@ export default function ReservationsTab({
             <form
               onSubmit={(e) => {
                 handleCreateReservation(e);
-                setIsCreating(false);
               }}
               className="p-4 space-y-4"
             >
@@ -295,7 +294,7 @@ export default function ReservationsTab({
         </div>
       )}
 
-      {/* HEADER (Com Layout Responsivo) */}
+      {/* HEADER */}
       <div className="bg-white p-4 border-b border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center shrink-0 shadow-sm z-20">
         <div className="flex items-center gap-2 text-slate-700">
           <Package className="text-purple-600" />
@@ -309,7 +308,6 @@ export default function ReservationsTab({
         </div>
 
         <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
-          {/* Botões de Ação (Mobile: Grid 2 colunas) */}
           <div className="grid grid-cols-2 gap-2 md:flex">
             <button
               onClick={() => setIsCreating(true)}
@@ -329,7 +327,6 @@ export default function ReservationsTab({
             )}
           </div>
 
-          {/* Filtros e Busca */}
           <div className="flex gap-2 w-full md:w-auto">
             <div className="relative w-1/3 md:w-auto">
               <Filter
@@ -364,10 +361,9 @@ export default function ReservationsTab({
         </div>
       </div>
 
-      {/* TABELA RESPONSIVA (TABLE TO CARD) */}
+      {/* TABELA (Agora renderiza apenas os visibleReservations) */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-2 md:p-4 bg-slate-50">
         <table className="w-full text-left text-sm block md:table">
-          {/* THEAD (Escondido no Mobile) */}
           <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold border-b sticky top-0 z-10 hidden md:table-header-group shadow-sm">
             <tr>
               <th className="px-4 py-3 w-10 text-center bg-slate-50">
@@ -385,18 +381,16 @@ export default function ReservationsTab({
             </tr>
           </thead>
 
-          <tbody className="block md:table-row-group space-y-3 md:space-y-0 pb-20">
-            {filteredReservations.map((res) => {
+          <tbody className="block md:table-row-group space-y-3 md:space-y-0">
+            {visibleReservations.map((res) => {
               const catalog = findCatalogItem ? findCatalogItem(res.sku) : null;
               const isSelected = selectedIds.has(res.id);
 
-              // Lógica de Disponibilidade
               const stockCount = inventory.filter(
                 (i) => i.sku === res.sku && i.status === "in_stock"
               ).length;
               const isAvailable = stockCount > 0;
 
-              // Formatação de Data
               let displayDate = "-";
               let displayTime = "";
               if (res.createdAt) {
@@ -431,7 +425,7 @@ export default function ReservationsTab({
                     }
                   `}
                 >
-                  {/* 1. CHECKBOX (Absoluto no Mobile - Topo Esquerdo) */}
+                  {/* ... (Conteúdo das Células Mantido Igual) ... */}
                   <td className="block md:table-cell md:px-4 md:py-3 text-center align-top p-3 md:p-0 absolute top-0 left-0 md:static z-10">
                     <input
                       type="checkbox"
@@ -441,7 +435,6 @@ export default function ReservationsTab({
                     />
                   </td>
 
-                  {/* 2. DISPONIBILIDADE (Absoluto no Mobile - Topo Direito) */}
                   <td className="block md:table-cell md:px-4 md:py-3 text-center align-top p-3 md:p-0 absolute top-0 right-0 md:static z-10">
                     {isAvailable ? (
                       <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full text-[10px] font-bold border border-emerald-200 shadow-sm">
@@ -454,7 +447,6 @@ export default function ReservationsTab({
                     )}
                   </td>
 
-                  {/* 3. DATA (Abaixo do Checkbox no Mobile) */}
                   <td className="block md:table-cell px-4 pb-1 pt-10 md:py-3 text-slate-500 text-xs md:whitespace-nowrap">
                     <div className="flex items-center gap-1">
                       <Calendar size={12} /> {displayDate}
@@ -467,7 +459,6 @@ export default function ReservationsTab({
                     </div>
                   </td>
 
-                  {/* 4. PRODUTO (Empilhado) */}
                   <td className="block md:table-cell px-4 py-1 md:py-3">
                     <div className="font-bold text-blue-600 text-sm md:text-xs">
                       {res.sku}
@@ -477,7 +468,6 @@ export default function ReservationsTab({
                     </div>
                   </td>
 
-                  {/* 5. CLIENTE (Empilhado) */}
                   <td className="block md:table-cell px-4 py-1 md:py-3">
                     <div className="flex items-center gap-1 font-bold text-slate-700 text-xs">
                       <User size={12} /> {res.order?.customer?.name || "Balcão"}
@@ -487,7 +477,6 @@ export default function ReservationsTab({
                     </div>
                   </td>
 
-                  {/* 6. SPECS (Tags) */}
                   <td className="block md:table-cell px-4 py-2 md:py-3">
                     <div className="flex flex-wrap gap-1">
                       {res.specs?.size && (
@@ -521,7 +510,6 @@ export default function ReservationsTab({
                     </div>
                   </td>
 
-                  {/* 7. CRIADO POR (Mobile: Inline) */}
                   <td className="block md:table-cell px-4 py-1 md:py-3 md:text-center">
                     <div className="inline-flex items-center gap-1 bg-slate-100 px-2 py-1 rounded border border-slate-200 text-[10px] font-bold text-slate-600 uppercase">
                       <UserCheck size={10} className="text-slate-400" />
@@ -529,7 +517,6 @@ export default function ReservationsTab({
                     </div>
                   </td>
 
-                  {/* 8. BOTÃO AÇÃO (Mobile: Largura Total em Baixo) */}
                   <td className="block md:table-cell px-4 py-3 md:py-3 text-center border-t md:border-0 mt-2 md:mt-0 bg-slate-50 md:bg-transparent rounded-b-xl md:rounded-none">
                     <button
                       onClick={() => setConversionData(res)}
@@ -544,6 +531,20 @@ export default function ReservationsTab({
             })}
           </tbody>
         </table>
+
+        {/* BOTÃO CARREGAR MAIS (SÓ APARECE SE TIVER MAIS) */}
+        {hasMore && (
+          <div className="p-6 flex justify-center pb-20">
+            <button
+              onClick={handleLoadMore}
+              className="flex items-center gap-2 bg-white border border-slate-300 text-slate-600 font-bold py-2 px-6 rounded-full hover:bg-slate-100 hover:text-purple-600 transition-all shadow-sm"
+            >
+              <ChevronDown size={16} />
+              Carregar Mais ({filteredReservations.length - visibleCount}{" "}
+              restantes)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

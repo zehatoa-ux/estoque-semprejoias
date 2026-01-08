@@ -89,6 +89,13 @@ export const generateCertificatePDF = (itemsToPrint, findCatalogItem) => {
       "left",
       1
     );
+
+    // --- NOVO: Lote da Pedra (Se existir) ---
+    const loteVal = specs.stoneBatch || specs.batch || "-";
+
+    writeLine(`Lote da Pedra: ${loteVal}`, 11, "left", 1);
+    // ----------------------------------------
+
     writeLine(`Metal: ${specs.material || "Prata 925"}`, 11, "left", 1);
     writeLine(`Finalização: ${specs.finishing || "Polido"}`, 11, "left", 4);
 
@@ -111,7 +118,24 @@ export const generateCertificatePDF = (itemsToPrint, findCatalogItem) => {
     writeLine("Equipe Sempre Joias", 11, "left", 0);
   });
 
-  // Salva o arquivo
-  pdfDoc.save("certificados_garantia.pdf");
+  // --- MELHORIA MOBILE: Detecção e Abertura Segura ---
+  try {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      // No celular, abrir em nova aba (blob) costuma funcionar melhor que download direto
+      const blob = pdfDoc.output("blob");
+      const blobURL = URL.createObjectURL(blob);
+      window.open(blobURL, "_blank");
+    } else {
+      // No PC, baixa direto
+      pdfDoc.save("certificados_garantia.pdf");
+    }
+  } catch (e) {
+    console.error("Erro ao gerar PDF:", e);
+    // Fallback simples
+    pdfDoc.save("certificados_garantia.pdf");
+  }
+
   return true; // Retorna sucesso
 };

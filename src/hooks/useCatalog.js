@@ -4,6 +4,7 @@ import { DEFAULT_XLSX_URL, STORAGE_KEY } from "../config/constants";
 export function useCatalog(user) {
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null); // <--- 1. NOVO ESTADO DE ERRO
   const [source, setSource] = useState("none"); // 'web' | 'cache' | 'none'
 
   // --- 1. LÓGICA DE PARSE (Interna) ---
@@ -127,17 +128,29 @@ export function useCatalog(user) {
   // --- 3. FETCH (Rede) ---
   const fetchCatalog = useCallback(async () => {
     setLoading(true);
+    setError(null); // <--- 2. RESET DO ERRO AO INICIAR
+
     try {
       const response = await fetch(DEFAULT_XLSX_URL);
-      if (!response.ok) throw new Error("Erro ao baixar XLSX");
+      if (!response.ok) throw new Error("Erro ao baixar XLSX (Rede)");
+
       const arrayBuffer = await response.arrayBuffer();
       const processed = parseWorkbook(arrayBuffer);
+
+      if (processed.length === 0)
+        throw new Error("Planilha vazia ou formato inválido");
+
       setCatalog(processed);
       setSource("web");
       saveToCache(processed);
       return { success: true, count: processed.length };
-    } catch (error) {
-      console.error(error);
+    } catch (err) {
+      console.error(err);
+
+      // <--- 3. SETAR O ERRO PARA AVISAR O APP.JS
+      setError(err.message || "Erro desconhecido ao carregar catálogo");
+
+      // Tenta fallback do cache
       const loaded = loadFromCache();
       return { success: false, usedCache: loaded };
     } finally {
@@ -146,7 +159,6 @@ export function useCatalog(user) {
   }, [loadFromCache]);
 
   // --- 4. INICIALIZAÇÃO ---
-  // Tenta carregar assim que o usuário logar e o script XLSX estiver pronto
   useEffect(() => {
     const i = setInterval(() => {
       // Só carrega se tiver usuário, tiver script e o catálogo estiver vazio
@@ -154,13 +166,11 @@ export function useCatalog(user) {
         fetchCatalog();
         clearInterval(i);
       }
-    }, 1000); // Verificação a cada 1s
+    }, 1000);
     return () => clearInterval(i);
   }, [user, catalog.length, fetchCatalog]);
 
   // --- 5. BUSCA INTELIGENTE (findItem) ---
-
-  // Otimização: Mapa para busca O(1)
   const catalogMap = useMemo(() => {
     const map = new Map();
     catalog.forEach((item) => {
@@ -169,7 +179,6 @@ export function useCatalog(user) {
     return map;
   }, [catalog]);
 
-  // A função principal que o App.js usa
   const findItem = useCallback(
     (sku) => {
       if (!sku) return null;
@@ -206,8 +215,9 @@ export function useCatalog(user) {
   return {
     catalog,
     loading,
+    error, // <--- 4. EXPORTA O ERRO
     source,
     findItem,
-    refreshCatalog: fetchCatalog, // Expõe função para botão de recarregar
+    refreshCatalog: fetchCatalog,
   };
 }

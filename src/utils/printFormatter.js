@@ -7,8 +7,7 @@ export function formatProductionTicket(orders) {
     const orderNum = order.order?.number || "-";
     const sku = order.sku || "-";
 
-    // --- NOVO: Lógica para pegar o nome do Cliente ---
-    // Tenta pegar da raiz (novo service) ou do objeto order (legado)
+    // Lógica para pegar o nome do Cliente
     const customerName =
       order.customerName || order.order?.customer?.name || "ND";
 
@@ -16,22 +15,39 @@ export function formatProductionTicket(orders) {
     const size = order.specs?.size || "-";
     const stone = order.specs?.stoneType || "-";
     const color = order.specs?.stoneColor || "-";
+    const stoneBatch = order.specs?.stoneBatch || "-"; // <--- NOVO
     const finish = order.specs?.finishing || "-";
     const engraving = order.specs?.engraving || "-";
     const type = order.specs?.jewelryType || "-";
     const material = order.specs?.material || "-";
     const category = order.specs?.category || "-";
 
-    // Montagem do Layout
+    // Montagem do Layout (Otimizado para leitura rápida)
     content += "--------------------------\n";
-    // Adicionei \nCliente: ${customerName} aqui na linha de baixo
-    content += `Data: ${dateSimple}\nPedido: ${orderNum}\nCliente: ${customerName}\nSKU: ${sku}\n`;
+    content += `PEDIDO: ${orderNum}\n`;
+    content += `DATA:   ${dateSimple}\n`;
+    content += `CLIENTE: ${customerName}\n`;
     content += "--------------------------\n";
-    content += `Aro: ${size}\nPedra: ${stone}\nCor: ${color}\nBanho: ${finish}\n`;
+
+    // Bloco Principal (O que fabricar)
+    content += `SKU:  ${sku}\n`;
+    content += `ARO:  ${size}\n`;
+    content += `METAL: ${material}\n`;
     content += "--------------------------\n";
-    content += `GRAV: ${engraving}\nTipo: ${type}\nMat: ${material}\nCat: ${category}\n`;
+
+    // Bloco da Pedra (Incluindo Lote)
+    content += `PEDRA: ${stone}\n`;
+    content += `COR:   ${color}\n`;
+    content += `LOTE:  ${stoneBatch}\n`; // <--- AQUI
+    content += "--------------------------\n";
+
+    // Bloco de Acabamento
+    content += `ACAB.: ${finish}\n`;
+    content += `GRAV.: ${engraving}\n`;
+    content += `TIPO:  ${type} / ${category}\n`;
+
     content +=
-      "-------------------------\nSUBLISMITH\n-------------------------\n\n\n";
+      "-------------------------\n       SUBLISMITH\n-------------------------\n\n\n";
   });
 
   return content;

@@ -292,7 +292,7 @@ export default function ProductionListView({
 
                       {/* 4. ESPECIFICAÇÕES */}
                       <td className="block md:table-cell px-4 pb-2 md:py-3 align-top">
-                        <div className="flex flex-wrap gap-2 text-[10px]">
+                        <div className="flex flex-wrap gap-2 text-[12px]">
                           {order.specs?.size && (
                             <span className="bg-slate-100 border px-1 rounded font-bold whitespace-nowrap">
                               Aro: {order.specs.size}
@@ -347,7 +347,7 @@ export default function ProductionListView({
                               order.customerName ||
                               "Balcão"}
                           </div>
-                          <div className="text-[10px] text-slate-400 md:mt-0.5">
+                          <div className="text-[12px] text-slate-400 md:mt-0.5">
                             {order.order?.number
                               ? `#${order.order.number}`
                               : "-"}

@@ -11,10 +11,9 @@ import {
   LogOut,
   X,
   Archive,
-  User, // Adicionei ícone de User para quando estiver fechado
+  User,
 } from "lucide-react";
 
-// Mapeamento de Ícones
 const TAB_ICONS = {
   stock: ClipboardList,
   conference: Barcode,
@@ -27,7 +26,6 @@ const TAB_ICONS = {
   config: Settings,
 };
 
-// Mapeamento de Labels
 export const TAB_LABELS = {
   stock: "ESTOQUE",
   reservations: "RESERVAS",
@@ -47,15 +45,18 @@ export default function Sidebar({
   setActiveTab,
   hasAccess,
   logout,
-  isOpen,
+  isOpen, // Indica se o menu mobile está aberto
   onClose,
 }) {
-  // Estado para controlar se o mouse está em cima da sidebar (apenas Desktop)
   const [isHovered, setIsHovered] = useState(false);
+
+  // Helper para decidir se mostra texto expandido
+  // Mostra se: Está com mouse em cima (Desktop) OU Menu está aberto (Mobile)
+  const isExpanded = isHovered || isOpen;
 
   return (
     <>
-      {/* Overlay Escuro para Mobile (Mantido igual) */}
+      {/* Overlay Escuro para Mobile */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
@@ -63,24 +64,23 @@ export default function Sidebar({
         />
       )}
 
-      {/* A Barra Lateral em si */}
+      {/* A Barra Lateral */}
       <aside
-        // Eventos de Mouse para expandir/retrair
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         className={`
           fixed top-0 left-0 z-50 h-full bg-slate-900 text-white shadow-xl 
           transform transition-all duration-300 ease-in-out
           
-          /* Mobile: Fixo w-64, controla visibilidade com Translate */
+          /* Mobile: Largura fixa */
           w-64 ${isOpen ? "translate-x-0" : "-translate-x-full"}
           
-          /* Desktop: Visível sempre, controla LARGURA com Hover */
+          /* Desktop: Lógica de Hover */
           md:translate-x-0 md:static md:flex md:flex-col
           ${isHovered ? "md:w-64" : "md:w-20"}
         `}
       >
-        {/* Cabeçalho da Sidebar (Logo) */}
+        {/* Cabeçalho (Logo) */}
         <div className="h-16 flex items-center px-4 border-b border-slate-700 overflow-hidden shrink-0 transition-all">
           <div className="flex items-center gap-3 w-full">
             <div className="h-10 w-10 min-w-[2.5rem] bg-white rounded flex items-center justify-center overflow-hidden">
@@ -91,11 +91,11 @@ export default function Sidebar({
               />
             </div>
 
-            {/* Texto do Logo (Sone com opacidade/width) */}
+            {/* Texto Logo: Usa isExpanded */}
             <div
               className={`transition-all duration-300 overflow-hidden whitespace-nowrap
                 ${
-                  isHovered
+                  isExpanded
                     ? "opacity-100 w-auto"
                     : "opacity-0 w-0 md:opacity-0"
                 }
@@ -108,7 +108,6 @@ export default function Sidebar({
             </div>
           </div>
 
-          {/* Botão fechar (só mobile) */}
           <button
             onClick={onClose}
             className="md:hidden text-slate-400 hover:text-white ml-auto"
@@ -121,18 +120,16 @@ export default function Sidebar({
         <div className="p-4 bg-slate-800/50 border-b border-slate-700/50 overflow-hidden shrink-0">
           <div
             className={`flex items-center gap-3 transition-all ${
-              !isHovered ? "justify-center" : ""
+              !isExpanded ? "justify-center" : ""
             }`}
           >
-            {/* Ícone de Avatar Sempre Visível */}
-            <div className="min-w-[2rem] h-8 w-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-400">
-              <User size={18} />
+            <div className="min-w-[2.5rem] h-10 w-10 rounded-full bg-slate-700 flex items-center justify-center text-slate-400">
+              <User size={20} />
             </div>
 
-            {/* Detalhes do Usuário (Retrátil) */}
             <div
               className={`flex flex-col transition-all duration-300 overflow-hidden whitespace-nowrap
-              ${isHovered ? "opacity-100 w-auto" : "opacity-0 w-0 md:hidden"}
+              ${isExpanded ? "opacity-100 w-auto" : "opacity-0 w-0 md:hidden"}
               `}
             >
               <span className="text-xs text-slate-400">Olá,</span>
@@ -159,9 +156,9 @@ export default function Sidebar({
                 key={tab}
                 onClick={() => {
                   setActiveTab(tab);
-                  onClose(); // Fecha menu no mobile ao clicar
+                  onClose();
                 }}
-                title={!isHovered ? TAB_LABELS[tab] : ""} // Tooltip nativo quando fechado
+                title={!isExpanded ? TAB_LABELS[tab] : ""}
                 className={`
                   w-full flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-all duration-200
                   ${
@@ -169,17 +166,15 @@ export default function Sidebar({
                       ? "bg-blue-600 text-white shadow-md"
                       : "text-slate-400 hover:bg-slate-800 hover:text-white"
                   }
-                  ${!isHovered ? "justify-center" : "justify-start gap-3"}
+                  ${!isExpanded ? "justify-center" : "justify-start gap-3"}
                 `}
               >
-                {/* Ícone fixo */}
                 <Icon size={20} className="shrink-0" />
 
-                {/* Texto Retrátil */}
                 <span
                   className={`transition-all duration-300 overflow-hidden whitespace-nowrap
                     ${
-                      isHovered
+                      isExpanded
                         ? "opacity-100 w-auto translate-x-0"
                         : "opacity-0 w-0 -translate-x-2 absolute"
                     }
@@ -196,16 +191,16 @@ export default function Sidebar({
         <div className="p-4 border-t border-slate-700 shrink-0">
           <button
             onClick={logout}
-            title={!isHovered ? "Sair do Sistema" : ""}
+            title={!isExpanded ? "Sair do Sistema" : ""}
             className={`
               w-full flex items-center px-4 py-2 bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white rounded-lg transition-colors text-sm font-bold
-              ${!isHovered ? "justify-center" : "justify-center gap-2"}
+              ${!isExpanded ? "justify-center" : "justify-center gap-2"}
             `}
           >
             <LogOut size={18} className="shrink-0" />
             <span
               className={`transition-all duration-300 overflow-hidden whitespace-nowrap
-               ${isHovered ? "opacity-100 w-auto" : "opacity-0 w-0 hidden"}
+               ${isExpanded ? "opacity-100 w-auto" : "opacity-0 w-0 hidden"}
                `}
             >
               Sair

@@ -12,8 +12,7 @@ import {
   Mail,
   Phone,
   Wrench,
-  ShieldAlert,
-  Flame, // Ícone para o Wipe
+  Flame,
 } from "lucide-react";
 import {
   collection,
@@ -26,17 +25,18 @@ import {
   orderBy,
   getDocs,
   writeBatch,
-  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { APP_COLLECTION_ID } from "../config/constants";
+import LoadingOverlay from "../components/layout/LoadingOverlay"; // Reutilizando seu loading bonito
 
 // --- MAPEAMENTO DAS PERMISSÕES (ABAS) ---
 const AVAILABLE_MODULES = [
   { id: "stock", label: "Estoque (Visualização)" },
+  { id: "stock_production", label: "Fábrica (Produção Estoque)" }, // Adicionei este que faltava no seu array
   { id: "conference", label: "Conferência (Bipar)" },
   { id: "reservations", label: "Reservas" },
-  { id: "production", label: "Produção (Fábrica)" },
+  { id: "production", label: "Produção (Pedidos)" },
   { id: "orders", label: "Logística & Expedição" },
   { id: "sales", label: "Baixa / Vendas" },
   { id: "reports", label: "Relatórios" },
@@ -48,7 +48,8 @@ const DATA_PATH = `artifacts/${APP_COLLECTION_ID}/public/data`;
 export default function ConfigTab({ handleResetStock }) {
   const [users, setUsers] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
-  const [loadingAction, setLoadingAction] = useState(false); // Loading global para ações admin
+  const [loadingAction, setLoadingAction] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState("");
 
   // Form State
   const [formData, setFormData] = useState({
@@ -74,44 +75,66 @@ export default function ConfigTab({ handleResetStock }) {
     return () => unsub();
   }, []);
 
-  // --- FERRAMENTAS ADMIN (NOVAS) ---
+  // --- HELPER: EXECUÇÃO EM LOTES SEGUROS (CHUNKING) ---
+  // O Firestore aceita no máx 500 operações por batch.
+  // Essa função garante que nunca estouramos esse limite.
+  const commitSafeBatch = async (operations) => {
+    const CHUNK_SIZE = 450; // Margem de segurança
+    const chunks = [];
 
-  // 1. CORRIGIR DADOS LEGADOS (Adiciona archived: false)
+    for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+      chunks.push(operations.slice(i, i + CHUNK_SIZE));
+    }
+
+    for (const chunk of chunks) {
+      const batch = writeBatch(db);
+      chunk.forEach((op) => {
+        if (op.type === "delete") batch.delete(op.ref);
+        if (op.type === "update") batch.update(op.ref, op.data);
+        if (op.type === "set") batch.set(op.ref, op.data);
+      });
+      await batch.commit();
+    }
+  };
+
+  // --- FERRAMENTAS ADMIN ---
+
+  // 1. CORRIGIR DADOS LEGADOS
   const handleFixLegacyData = async () => {
     if (
       !window.confirm(
-        "Isso vai varrer todos os pedidos antigos e adicionar 'archived: false' para que apareçam nas listas. Continuar?"
+        "Isso vai corrigir pedidos antigos sem o campo 'archived'. Continuar?"
       )
     )
       return;
 
     setLoadingAction(true);
-    try {
-      const batch = writeBatch(db);
-      let count = 0;
+    setLoadingMsg("Analisando pedidos...");
 
+    try {
       const ref = collection(db, `${DATA_PATH}/production_orders`);
       const snapshot = await getDocs(ref);
 
+      const operations = [];
+
       snapshot.docs.forEach((document) => {
         const data = document.data();
-        // Se não tiver o campo 'archived', adicionamos false
+        // Se não tiver o campo 'archived', adiciona na fila de update
         if (data.archived === undefined) {
-          batch.update(document.ref, {
-            archived: false,
+          operations.push({
+            type: "update",
+            ref: document.ref,
+            data: { archived: false },
           });
-          count++;
         }
       });
 
-      if (count > 0) {
-        await batch.commit();
-        alert(
-          `SUCESSO! ${count} pedidos antigos foram corrigidos e devem aparecer agora.`
-        );
-        window.location.reload();
+      if (operations.length > 0) {
+        setLoadingMsg(`Corrigindo ${operations.length} registros...`);
+        await commitSafeBatch(operations);
+        alert(`SUCESSO! ${operations.length} pedidos corrigidos.`);
       } else {
-        alert("Nenhum pedido precisava de correção.");
+        alert("Tudo certo! Nenhum pedido precisava de correção.");
       }
     } catch (error) {
       console.error(error);
@@ -129,41 +152,53 @@ export default function ConfigTab({ handleResetStock }) {
     if (confirmText !== "DELETAR TUDO") return alert("Ação cancelada.");
 
     setLoadingAction(true);
-    try {
-      const batch = writeBatch(db);
-      let count = 0;
+    setLoadingMsg("Preparando para apagar TUDO...");
 
+    try {
       const collectionsToWipe = [
         "production_orders",
         "reservations",
         "inventory_items",
       ];
 
+      const operations = [];
+
+      // 1. Coleta todos os documentos de todas as coleções
       for (const colName of collectionsToWipe) {
+        setLoadingMsg(`Lendo ${colName}...`);
         const ref = collection(db, `${DATA_PATH}/${colName}`);
         const snapshot = await getDocs(ref);
 
         snapshot.docs.forEach((document) => {
-          batch.delete(doc(db, `${DATA_PATH}/${colName}`, document.id));
-          count++;
+          operations.push({
+            type: "delete",
+            ref: document.ref,
+          });
         });
       }
 
-      await batch.commit();
-      alert(
-        `WIPE CONCLUÍDO! ${count} registros apagados. O sistema está zerado.`
-      );
-      window.location.reload();
+      // 2. Executa em lotes
+      if (operations.length > 0) {
+        setLoadingMsg(
+          `Apagando ${operations.length} registros... (Isso pode demorar)`
+        );
+        await commitSafeBatch(operations);
+        alert(
+          `WIPE CONCLUÍDO! ${operations.length} registros foram para o espaço.`
+        );
+        window.location.reload();
+      } else {
+        alert("O banco já está vazio.");
+      }
     } catch (error) {
       console.error(error);
-      alert("Erro ao limpar: " + error.message);
+      alert("Erro crítico ao limpar: " + error.message);
     } finally {
       setLoadingAction(false);
     }
   };
 
-  // --- CRUD USUÁRIOS ---
-
+  // --- CRUD USUÁRIOS (MANTIDO IGUAL) ---
   const handleEdit = (user) => {
     setFormData({
       id: user.id,
@@ -171,7 +206,7 @@ export default function ConfigTab({ handleResetStock }) {
       username: user.username || "",
       email: user.email || "",
       phone: user.phone || "",
-      password: "",
+      password: "", // Senha não vem do banco por segurança visual
       role: user.role || "user",
       access: user.access || [],
     });
@@ -266,6 +301,9 @@ export default function ConfigTab({ handleResetStock }) {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-10">
+      {/* Loading Overlay Local para Ações Pesadas */}
+      {loadingAction && <LoadingOverlay message={loadingMsg} />}
+
       {/* SEÇÃO DE SISTEMA (PERIGO & MANUTENÇÃO) */}
       <div className="bg-white p-6 rounded-xl border border-red-100 shadow-sm">
         <h3 className="text-lg font-bold text-red-700 flex items-center gap-2 mb-4">
@@ -273,14 +311,14 @@ export default function ConfigTab({ handleResetStock }) {
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* 1. RESETAR ESTOQUE (Existente) */}
+          {/* 1. RESETAR ESTOQUE */}
           <div className="bg-red-50 p-4 rounded-lg border border-red-200 flex flex-col justify-between gap-3">
             <div>
               <h4 className="font-bold text-red-900 flex items-center gap-2">
                 <RefreshCw size={16} /> Resetar Estoque
               </h4>
               <p className="text-xs text-red-700 mt-1">
-                Apaga itens "in_stock". Mantém vendas.
+                Apaga apenas itens "in_stock". Mantém histórico de vendas.
               </p>
             </div>
             <button
@@ -292,14 +330,15 @@ export default function ConfigTab({ handleResetStock }) {
             </button>
           </div>
 
-          {/* 2. CORRIGIR LEGADO (Novo) */}
+          {/* 2. CORRIGIR LEGADO */}
           <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 flex flex-col justify-between gap-3">
             <div>
               <h4 className="font-bold text-blue-900 flex items-center gap-2">
                 <Wrench size={16} /> Corrigir Legado
               </h4>
               <p className="text-xs text-blue-700 mt-1">
-                Faz pedidos antigos aparecerem nas listas.
+                Adiciona campos faltantes em pedidos antigos para aparecerem nas
+                listas.
               </p>
             </div>
             <button
@@ -307,18 +346,18 @@ export default function ConfigTab({ handleResetStock }) {
               disabled={loadingAction}
               className="w-full bg-white border border-blue-300 text-blue-700 px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-600 hover:text-white transition-colors"
             >
-              {loadingAction ? "Processando..." : "Rodar Correção"}
+              Rodar Correção
             </button>
           </div>
 
-          {/* 3. WIPE TOTAL (Novo) */}
+          {/* 3. WIPE TOTAL */}
           <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col justify-between gap-3">
             <div>
               <h4 className="font-bold text-white flex items-center gap-2">
                 <Flame size={16} className="text-orange-500" /> WIPE TOTAL
               </h4>
               <p className="text-xs text-slate-400 mt-1">
-                Apaga TUDO (Estoque, Pedidos, Reservas). Cuidado!
+                Apaga TUDO (Estoque, Pedidos, Reservas). Irreversível.
               </p>
             </div>
             <button
@@ -326,13 +365,13 @@ export default function ConfigTab({ handleResetStock }) {
               disabled={loadingAction}
               className="w-full bg-red-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-lg border border-red-500"
             >
-              {loadingAction ? "Apagando..." : "DELETAR BANCO"}
+              DELETAR BANCO
             </button>
           </div>
         </div>
       </div>
 
-      {/* SEÇÃO DE USUÁRIOS (MANTIDA IGUAL) */}
+      {/* SEÇÃO DE USUÁRIOS */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b bg-slate-50 flex justify-between items-center">
           <div>
@@ -388,7 +427,7 @@ export default function ConfigTab({ handleResetStock }) {
                 </div>
               </div>
 
-              {/* CONTATO (NOVO) */}
+              {/* CONTATO */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">

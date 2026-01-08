@@ -146,9 +146,39 @@ export default function ProductionConversionModal({
 
   // --- STATE ---
   const [formData, setFormData] = useState({
-    specs: {},
-    order: { customer: {}, payment: {}, notes: "" },
-    shipping: { address: {} },
+    specs: {
+      size: "",
+      stoneType: "",
+      stoneColor: "",
+      stoneBatch: "",
+      finishing: "",
+      engraving: "",
+      standardColor: "",
+      jewelryType: "",
+      material: "",
+      category: "",
+    },
+    order: {
+      number: "",
+      notes: "",
+      customer: { name: "", cpf: "", email: "", phone: "" },
+      payment: { method: "", total: "" },
+    },
+    shipping: {
+      tipoenvio: "",
+      price: "",
+      tracking: "",
+      address: {
+        destinatario: "",
+        street: "",
+        number: "",
+        complemento: "",
+        city: "",
+        statecode: "",
+        zip: "",
+        district: "",
+      },
+    },
     customDate: "",
     orderNumber: "",
 

@@ -9,13 +9,19 @@ import {
   Search,
   Printer,
   Edit2,
-  Pencil,
   ArrowRightLeft,
   Trash2,
   Archive,
   MapPin,
   Filter,
   Factory,
+  // Novos ícones para o visual melhorado
+  Layers,
+  ShieldCheck,
+  Gem,
+  Ruler,
+  AlertTriangle,
+  PenTool,
 } from "lucide-react";
 
 import { formatMoney } from "../utils/formatters";
@@ -26,7 +32,6 @@ import { generateCertificatePDF } from "../utils/certificateGenerator";
 import { useOrderProcessing } from "../hooks/useOrderProcessing";
 import { useOrdersData } from "../hooks/useOrdersData";
 import { useOrderActions } from "../hooks/useOrderActions";
-import { logAction, MODULES, getSafeUser } from "../services/logService";
 import { useAuth } from "../contexts/AuthContext";
 
 // Configs
@@ -40,6 +45,13 @@ import {
 } from "../config/productionStatuses";
 import { canArchiveOrder, canDeleteOrder } from "../utils/logisticsLogic";
 
+// Helper Anti-ND (Igual ao da Produção)
+const hasValue = (val) => {
+  if (!val) return false;
+  const s = String(val).trim().toUpperCase();
+  return s !== "" && s !== "ND" && s !== "-" && s !== "N/A";
+};
+
 export default function OrdersTab({ findCatalogItem }) {
   // --- ESTADOS ---
   const [expandedOrders, setExpandedOrders] = useState(new Set());
@@ -47,11 +59,11 @@ export default function OrdersTab({ findCatalogItem }) {
   const [searchTerm, setSearchTerm] = useState("");
 
   // Filtros Globais
-  const [activeStatusFilter, setActiveStatusFilter] = useState("all"); // Sidebar (Logístico)
-  const [filterUF, setFilterUF] = useState("all"); // Novo: Estado
-  const [filterProdStatus, setFilterProdStatus] = useState("all"); // Novo: Status Prod.
+  const [activeStatusFilter, setActiveStatusFilter] = useState("all");
+  const [filterUF, setFilterUF] = useState("all");
+  const [filterProdStatus, setFilterProdStatus] = useState("all");
 
-  const { user } = useAuth(); // Or however you access auth
+  const { user } = useAuth();
   const actions = useOrderActions(user);
 
   // Modais
@@ -62,7 +74,7 @@ export default function OrdersTab({ findCatalogItem }) {
   // Dados
   const { rawData } = useOrdersData();
 
-  // Processamento Base (Busca Textual + Agrupamento)
+  // Processamento
   const groupedOrders = useOrderProcessing(
     rawData,
     searchTerm,
@@ -70,8 +82,7 @@ export default function OrdersTab({ findCatalogItem }) {
     findCatalogItem
   );
 
-  // --- HELPER: CAÇADOR DE UF ---
-  // (Precisamos definir isso antes de usar no useMemo dos filtros)
+  // --- HELPERS ---
   const getOrderUF = (group) => {
     if (group.customerState) return group.customerState;
     const item = group.items?.[0];
@@ -85,7 +96,6 @@ export default function OrdersTab({ findCatalogItem }) {
     return "-";
   };
 
-  // --- LISTA DE UFS DISPONÍVEIS (Dinâmica) ---
   const availableUFs = useMemo(() => {
     const ufs = new Set();
     groupedOrders.forEach((g) => {
@@ -95,30 +105,24 @@ export default function OrdersTab({ findCatalogItem }) {
     return Array.from(ufs).sort();
   }, [groupedOrders]);
 
-  // --- FILTRAGEM FINAL COMBINADA ---
   const displayedOrders = useMemo(() => {
-    // 1. Filtro da Sidebar (Status Logístico)
     let data =
       activeStatusFilter === "all"
         ? groupedOrders
         : groupedOrders.filter((g) => g.logisticsStatus === activeStatusFilter);
 
-    // 2. Filtro de UF
     if (filterUF !== "all") {
       data = data.filter((g) => getOrderUF(g) === filterUF);
     }
 
-    // 3. Filtro de Status de Produção (Se algum item do pedido tiver esse status)
     if (filterProdStatus !== "all") {
       data = data.filter((g) =>
         g.items.some((i) => i.status === filterProdStatus)
       );
     }
-
     return data;
   }, [groupedOrders, activeStatusFilter, filterUF, filterProdStatus]);
 
-  // Contagens para a Sidebar (Baseado nos dados brutos da busca, sem filtrar UF/Prod ainda, para mostrar o panorama)
   const statusCounts = useMemo(() => {
     return groupedOrders.reduce((acc, order) => {
       const status = order.logisticsStatus || "OUTROS";
@@ -198,9 +202,8 @@ export default function OrdersTab({ findCatalogItem }) {
   };
 
   return (
-    // 1. CONTAINER: Coluna no Mobile, Linha no PC
     <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] w-full overflow-hidden bg-slate-50">
-      {/* --- MODAIS (Mantidos iguais) --- */}
+      {/* MODAIS */}
       {editingItem && (
         <ProductionConversionModal
           isOpen={!!editingItem}
@@ -228,16 +231,14 @@ export default function OrdersTab({ findCatalogItem }) {
         />
       )}
 
-      {/* --- SIDEBAR LATERAL (VISÍVEL APENAS NO DESKTOP) --- */}
+      {/* SIDEBAR */}
       <aside className="hidden md:flex w-64 bg-white border-r border-slate-200 flex-col shrink-0 z-10 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100">
           <h2 className="font-bold text-slate-700 flex items-center gap-2">
             <Truck size={18} /> Logística
           </h2>
         </div>
-
         <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
-          {/* Botão TODOS */}
           <button
             onClick={() => setActiveStatusFilter("all")}
             className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex justify-between items-center ${
@@ -251,15 +252,11 @@ export default function OrdersTab({ findCatalogItem }) {
               {groupedOrders.length}
             </span>
           </button>
-
           <div className="h-px bg-slate-200 my-2"></div>
-
-          {/* Lista de Status Logístico */}
           {LOGISTICS_ORDER.map((statusId) => {
             const config = LOGISTICS_STATUS_CONFIG[statusId];
             const count = statusCounts[statusId] || 0;
             const isActive = activeStatusFilter === statusId;
-
             return (
               <button
                 key={statusId}
@@ -302,9 +299,9 @@ export default function OrdersTab({ findCatalogItem }) {
         </div>
       </aside>
 
-      {/* --- ÁREA PRINCIPAL (DIREITA) --- */}
+      {/* MAIN */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* ===> MENU MOBILE (NOVO: APARECE NO TOPO DO MAIN NO CELULAR) <=== */}
+        {/* MOBILE MENU */}
         <div className="md:hidden bg-slate-100 border-b border-slate-200 p-3 shrink-0 z-20">
           <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
             <Truck size={12} /> Filtrar Status Logístico:
@@ -322,19 +319,15 @@ export default function OrdersTab({ findCatalogItem }) {
                 </option>
               ))}
             </select>
-            {/* Ícone seta */}
             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
               <Filter size={14} />
             </div>
           </div>
         </div>
-        {/* =============================================================== */}
 
-        {/* TOPO DA TAB: Busca + Filtros Secundários + Ações */}
+        {/* TOPO */}
         <div className="bg-white border-b border-slate-200 p-4 flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center shrink-0">
-          {/* Grupo de Filtros */}
           <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto flex-1">
-            {/* 1. Busca Texto */}
             <div className="relative flex-1">
               <Search
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -348,10 +341,7 @@ export default function OrdersTab({ findCatalogItem }) {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-
-            {/* Container flex para os selects no mobile ficarem lado a lado se der */}
             <div className="flex gap-2 w-full md:w-auto">
-              {/* 2. Filtro UF */}
               <div className="relative flex-1 md:min-w-[100px]">
                 <MapPin
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -374,8 +364,6 @@ export default function OrdersTab({ findCatalogItem }) {
                   size={12}
                 />
               </div>
-
-              {/* 3. Filtro Status Produção */}
               <div className="relative flex-[1.5] md:min-w-[180px]">
                 <Factory
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -400,8 +388,6 @@ export default function OrdersTab({ findCatalogItem }) {
               </div>
             </div>
           </div>
-
-          {/* Botões de Ação */}
           {selectedItems.size > 0 && (
             <button
               onClick={handlePrintCertificates}
@@ -412,7 +398,7 @@ export default function OrdersTab({ findCatalogItem }) {
           )}
         </div>
 
-        {/* LISTA DE PEDIDOS (Scrollável) */}
+        {/* LISTA */}
         <div className="flex-1 overflow-y-auto p-2 md:p-4 custom-scrollbar bg-slate-50/50">
           {displayedOrders.length === 0 ? (
             <div className="text-center py-20 text-slate-400">
@@ -436,11 +422,9 @@ export default function OrdersTab({ findCatalogItem }) {
                 ? LOGISTICS_ORDER
                 : [activeStatusFilter]
               ).map((statusLabel) => {
-                // Filtra apenas os pedidos que pertencem a este grupo logístico E passaram pelos filtros globais
                 const ordersInGroup = displayedOrders.filter(
                   (g) => g.logisticsStatus === statusLabel
                 );
-
                 if (ordersInGroup.length === 0) return null;
 
                 const config = LOGISTICS_STATUS_CONFIG[statusLabel] || {};
@@ -453,7 +437,6 @@ export default function OrdersTab({ findCatalogItem }) {
 
                 return (
                   <div key={statusLabel} className="space-y-3">
-                    {/* Cabeçalho do Grupo */}
                     <div
                       className={`px-4 py-2 rounded-lg flex justify-between items-center ${headerColorClass} border border-transparent shadow-sm`}
                     >
@@ -471,7 +454,6 @@ export default function OrdersTab({ findCatalogItem }) {
                       </span>
                     </div>
 
-                    {/* Cards de Pedidos */}
                     <div className="space-y-3 pl-1 md:pl-2">
                       {ordersInGroup.map((group) => {
                         const isExpanded = expandedOrders.has(
@@ -484,14 +466,14 @@ export default function OrdersTab({ findCatalogItem }) {
                             key={group.orderNumber}
                             className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-all"
                           >
-                            {/* LINHA DE RESUMO */}
+                            {/* CARD RESUMO */}
                             <div
                               className={`p-3 md:p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer ${
                                 isExpanded ? "bg-slate-50" : "bg-white"
                               }`}
                               onClick={() => toggleExpand(group.orderNumber)}
                             >
-                              {/* 1. Pedido e Cliente */}
+                              {/* 1. ID e Cliente */}
                               <div className="flex items-center gap-3 flex-1 min-w-[200px]">
                                 <div
                                   className={`p-1 rounded transition-transform ${
@@ -503,7 +485,6 @@ export default function OrdersTab({ findCatalogItem }) {
                                     className="text-slate-400"
                                   />
                                 </div>
-
                                 <div className="flex flex-col">
                                   <span className="text-[10px] font-bold text-slate-400 uppercase">
                                     Pedido
@@ -512,9 +493,7 @@ export default function OrdersTab({ findCatalogItem }) {
                                     #{group.orderNumber}
                                   </span>
                                 </div>
-
                                 <div className="w-px h-8 bg-slate-200 mx-2 hidden md:block"></div>
-
                                 <div className="flex flex-col overflow-hidden">
                                   <span className="text-[10px] font-bold text-slate-400 uppercase">
                                     Cliente
@@ -525,7 +504,6 @@ export default function OrdersTab({ findCatalogItem }) {
                                       className="text-slate-400"
                                     />
                                     <span className="font-bold text-slate-700 truncate text-sm">
-                                      {/* CORREÇÃO DE SEGURANÇA: Verifica se é objeto ou string */}
                                       {typeof group.customerName === "object"
                                         ? group.customerName?.name ||
                                           "Cliente sem nome"
@@ -536,27 +514,16 @@ export default function OrdersTab({ findCatalogItem }) {
                                 </div>
                               </div>
 
-                              {/* 2. UF e Frete */}
+                              {/* 2. UF, Frete e Status */}
                               <div className="flex items-center gap-2 w-full md:w-auto pl-8 md:pl-0">
-                                {/* UF */}
-                                <div
-                                  className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 border border-slate-200 uppercase"
-                                  title="Estado"
-                                >
-                                  <MapPin size={10} />
-                                  {uf}
+                                <div className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 border border-slate-200 uppercase">
+                                  <MapPin size={10} /> {uf}
                                 </div>
-
-                                {/* Método de Envio */}
-                                <div
-                                  className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold border border-slate-200 truncate max-w-[100px]"
-                                  title="Forma de Envio"
-                                >
+                                <div className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold border border-slate-200 truncate max-w-[100px]">
                                   {group.shippingMethod || "Retirada"}
                                 </div>
                               </div>
 
-                              {/* 3. Status (Dropdown) */}
                               <div
                                 className="w-full md:w-32 pl-8 md:pl-0"
                                 onClick={(e) => e.stopPropagation()}
@@ -579,7 +546,7 @@ export default function OrdersTab({ findCatalogItem }) {
                                 </select>
                               </div>
 
-                              {/* 4. Meta Info */}
+                              {/* 3. Meta Info */}
                               <div className="flex items-center gap-4 justify-between md:justify-end text-sm md:w-auto w-full border-t md:border-t-0 pt-2 md:pt-0 mt-2 md:mt-0 pl-8 md:pl-0">
                                 <div className="flex flex-col items-end">
                                   <span className="text-[10px] font-bold text-slate-400 uppercase">
@@ -590,7 +557,6 @@ export default function OrdersTab({ findCatalogItem }) {
                                     {group.date.toLocaleDateString("pt-BR")}
                                   </span>
                                 </div>
-
                                 <div className="flex flex-col items-end w-20">
                                   <span className="text-[10px] font-bold text-slate-400 uppercase">
                                     Total
@@ -600,8 +566,6 @@ export default function OrdersTab({ findCatalogItem }) {
                                     {formatMoney(group.totalValue)}
                                   </span>
                                 </div>
-
-                                {/* Botões de Ação */}
                                 <div
                                   className="flex items-center gap-1 pl-2 border-l border-slate-100"
                                   onClick={(e) => e.stopPropagation()}
@@ -617,7 +581,6 @@ export default function OrdersTab({ findCatalogItem }) {
                                       <Archive size={16} />
                                     </button>
                                   )}
-
                                   {canDeleteOrder(group) && (
                                     <button
                                       onClick={() => actions.deleteOrder(group)}
@@ -627,26 +590,24 @@ export default function OrdersTab({ findCatalogItem }) {
                                       <Trash2 size={16} />
                                     </button>
                                   )}
-
                                   <button
                                     onClick={() => setEditingOrderGroup(group)}
                                     className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
                                     title="Editar Dados"
                                   >
-                                    <Pencil size={16} />
+                                    <Edit2 size={16} />
                                   </button>
                                 </div>
                               </div>
                             </div>
 
-                            {/* LISTA DE ITENS (EXPANDIDO) */}
+                            {/* LISTA DE ITENS EXPANDIDA */}
                             {isExpanded && (
                               <div className="border-t border-slate-200 bg-slate-50/50 p-4 animate-slide-in">
                                 <h4 className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-2 mb-2">
                                   <Package size={12} /> Itens do Pedido (
                                   {group.items.length})
                                 </h4>
-
                                 <div className="space-y-2">
                                   {group.items.map((subItem) => {
                                     const statusConf = PRODUCTION_STATUS_CONFIG[
@@ -655,6 +616,11 @@ export default function OrdersTab({ findCatalogItem }) {
                                     const isSelected = selectedItems.has(
                                       subItem.id
                                     );
+                                    const isNatural =
+                                      subItem.specs?.stoneType === "Natural";
+                                    const isIntercepted =
+                                      subItem.isInterceptedPE;
+                                    const isPE = subItem.isPE;
 
                                     return (
                                       <div
@@ -674,7 +640,6 @@ export default function OrdersTab({ findCatalogItem }) {
                                               toggleSelection(subItem.id)
                                             }
                                           />
-
                                           <div className="flex gap-1">
                                             <button
                                               onClick={() =>
@@ -694,10 +659,29 @@ export default function OrdersTab({ findCatalogItem }) {
                                             </button>
                                           </div>
 
-                                          <div className="flex gap-1">
-                                            {subItem.fromStock && (
-                                              <span className="bg-emerald-100 text-emerald-700 text-[9px] font-bold px-1 rounded cursor-help">
-                                                E
+                                          <div className="flex gap-1 flex-wrap">
+                                            {/* Badges de Status */}
+                                            {subItem.fromStock &&
+                                              !isPE &&
+                                              !isIntercepted && (
+                                                <span className="bg-emerald-100 text-emerald-700 text-[9px] font-bold px-1 rounded cursor-help">
+                                                  E
+                                                </span>
+                                              )}
+                                            {isIntercepted && (
+                                              <span
+                                                className="bg-orange-100 text-orange-700 text-[9px] font-bold px-1 rounded border border-orange-200 flex items-center gap-0.5"
+                                                title="Interceptado"
+                                              >
+                                                <Layers size={8} /> INT
+                                              </span>
+                                            )}
+                                            {isPE && !isIntercepted && (
+                                              <span
+                                                className="bg-purple-100 text-purple-700 text-[9px] font-bold px-1 rounded flex items-center gap-0.5"
+                                                title="Produção Estoque"
+                                              >
+                                                <Layers size={8} /> PE
                                               </span>
                                             )}
                                             {subItem.printed && (
@@ -716,24 +700,63 @@ export default function OrdersTab({ findCatalogItem }) {
                                             {subItem.sku}
                                           </span>
 
-                                          <div className="flex items-center gap-2 text-xs text-slate-600 flex-wrap">
-                                            {subItem.specs?.stoneType && (
-                                              <span className="bg-slate-100 px-1.5 rounded">
-                                                {subItem.specs.stoneType}
-                                              </span>
+                                          {/* SPECS REFINADAS */}
+                                          <div className="flex items-center gap-1.5 text-xs text-slate-600 flex-wrap">
+                                            {hasValue(subItem.specs?.size) && (
+                                              <div
+                                                className="flex items-center gap-1 bg-slate-50 px-1.5 rounded border border-slate-100"
+                                                title="Aro"
+                                              >
+                                                <Ruler
+                                                  size={10}
+                                                  className="text-slate-400"
+                                                />{" "}
+                                                <b>{subItem.specs.size}</b>
+                                              </div>
                                             )}
-                                            {subItem.specs?.size && (
-                                              <span className="bg-slate-100 px-1.5 rounded">
-                                                Aro {subItem.specs.size}
-                                              </span>
-                                            )}
-                                            {subItem.specs?.stoneColor &&
-                                              subItem.specs.stoneColor !==
-                                                "ND" && (
-                                                <span className="bg-pink-50 text-pink-700 px-1.5 rounded border border-pink-100">
+
+                                            {hasValue(
+                                              subItem.specs?.stoneColor
+                                            ) && (
+                                              <div
+                                                className="flex items-center gap-1 bg-slate-50 px-1.5 rounded border border-slate-100"
+                                                title="Cor"
+                                              >
+                                                <Gem
+                                                  size={10}
+                                                  className="text-purple-400"
+                                                />{" "}
+                                                <span className="font-bold">
                                                   {subItem.specs.stoneColor}
                                                 </span>
-                                              )}
+                                              </div>
+                                            )}
+
+                                            {hasValue(
+                                              subItem.specs?.stoneBatch
+                                            ) && (
+                                              <span className="bg-blue-50 text-blue-700 px-1.5 rounded text-[10px] border border-blue-100 font-mono">
+                                                #{subItem.specs.stoneBatch}
+                                              </span>
+                                            )}
+
+                                            {isNatural && (
+                                              <span className="bg-indigo-50 text-indigo-700 px-1.5 rounded text-[10px] font-bold border border-indigo-100 flex items-center gap-1">
+                                                <ShieldCheck size={8} /> Natural
+                                              </span>
+                                            )}
+
+                                            {hasValue(
+                                              subItem.specs?.engraving
+                                            ) && (
+                                              <div
+                                                className="flex items-center gap-1 bg-purple-50 text-purple-700 px-1.5 rounded text-[10px] border border-purple-100 font-bold"
+                                                title="Gravação"
+                                              >
+                                                <PenTool size={8} /> "
+                                                {subItem.specs.engraving}"
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
 

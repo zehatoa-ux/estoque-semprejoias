@@ -7,7 +7,7 @@ import {
   Layers,
   CheckCircle,
   LayoutList,
-  Kanban,
+  // Kanban, // REMOVIDO: Botão Kanban não será mais usado
 } from "lucide-react";
 
 // Hooks
@@ -35,30 +35,64 @@ import ProductionConversionModal from "../components/modals/ProductionConversion
 export default function ProductionTab({ user, findCatalogItem }) {
   // 1. Dados (Hooks)
   const { orders, loading } = useProductionOrders();
-  const stats = useProductionStats(); // Mantido se precisar para histórico, mas não usado no topo
+  // const stats = useProductionStats(); // (Opcional, já temos AgeChart)
 
   // 2. Estados Locais
   const [filterText, setFilterText] = useState("");
-  const [activeStatusFilter, setActiveStatusFilter] = useState("all"); // 'all' ou ID do status para scroll/filtro
-  const [groupBy, setGroupBy] = useState("status"); // 'status' ou 'days'
+  const [activeStatusFilter, setActiveStatusFilter] = useState("all");
+  const [groupBy, setGroupBy] = useState("status"); // 'status' (Padrão)
+
+  // --- NOVO: Estado para Filtro de Idade (Vindo do Gráfico) ---
+  const [ageFilter, setAgeFilter] = useState(null); // null | { min, max }
 
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [editingOrder, setEditingOrder] = useState(null);
   const [printContent, setPrintContent] = useState(null);
 
-  // 3. Processamento
-  // Nota: Se quiser que o clique no menu lateral FILTRE a lista (mostre só aquele status),
-  // passe activeStatusFilter aqui. Se quiser apenas scroll, mantenha 'all' no hook.
-  // Vou fazer filtrando visualmente na lista para "limpar" a visão, conforme parece ser o desejo.
-  const filteredOrders = useProductionFilter(
+  // 3. Processamento (Filtros em Cascata)
+  // Passo A: Filtra por Texto e Status
+  const baseFilteredOrders = useProductionFilter(
     orders,
     filterText,
-    "all",
+    "all", // Filtramos visualmente depois para manter o contador total correto na sidebar
     findCatalogItem
   );
-  const groupedOrders = useProductionGrouping(filteredOrders, groupBy);
+
+  // Passo B: Filtra por Idade (Se clicou no gráfico)
+  const finalFilteredOrders = baseFilteredOrders.filter((order) => {
+    if (!ageFilter) return true; // Sem filtro de idade
+
+    const now = new Date();
+    const created = order.customCreatedAt
+      ? new Date(order.customCreatedAt)
+      : order.createdAt?.toDate
+      ? order.createdAt.toDate()
+      : new Date();
+
+    // Diferença em dias úteis (simplificado para dias corridos para performance, ou use helper)
+    const diffTime = Math.abs(now - created);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    // Lógica simples: "Mais de X dias" significa dia atual > dia limite
+    if (ageFilter.min !== undefined && diffDays < ageFilter.min) return false;
+    if (ageFilter.max !== undefined && diffDays > ageFilter.max) return false;
+
+    return true;
+  });
+
+  const groupedOrders = useProductionGrouping(finalFilteredOrders, groupBy);
 
   // --- HANDLERS ---
+
+  // NOVO: Handler ao clicar no gráfico
+  const handleChartClick = (range) => {
+    // Se clicar no mesmo, limpa o filtro (toggle)
+    if (ageFilter && ageFilter.label === range.label) {
+      setAgeFilter(null);
+    } else {
+      setAgeFilter(range);
+    }
+  };
 
   const toggleSelect = (id) => {
     const newSet = new Set(selectedOrders);
@@ -110,36 +144,27 @@ export default function ProductionTab({ user, findCatalogItem }) {
     setSelectedOrders(new Set());
   };
 
-  // --- NOVO: Handler para Movimentação em Massa ---
+  // Handler para Movimentação em Massa
   const handleBatchMove = async (newStatus) => {
     if (!newStatus) return;
-
-    // 1. Confirmação de Segurança
     const confirmMessage = `Tem certeza que deseja mover ${selectedOrders.size} pedidos para "${PRODUCTION_STATUS_CONFIG[newStatus]?.label}"?`;
     if (!window.confirm(confirmMessage)) return;
 
     try {
-      // 2. Transforma o Set de IDs em Array para iterar
       const promises = Array.from(selectedOrders).map(async (orderId) => {
-        // Precisamos achar o pedido original para saber o status antigo (para o histórico)
         const order = orders.find((o) => o.id === orderId);
-
         if (order) {
           return productionService.updateStatus(
             orderId,
             newStatus,
-            order.status, // Passa o status atual dele
+            order.status,
             user?.name || "Admin"
           );
         }
       });
-
-      // 3. Executa tudo junto (Promise.all acelera o processo)
       await Promise.all(promises);
-
-      // 4. Limpeza
-      setSelectedOrders(new Set()); // Desmarca tudo
-      alert("Movimentação em massa concluída!"); // Ou use seu showNotification se tiver
+      setSelectedOrders(new Set());
+      alert("Movimentação em massa concluída!");
     } catch (error) {
       console.error("Erro no lote:", error);
       alert("Erro ao mover alguns pedidos. Verifique o console.");
@@ -168,15 +193,6 @@ export default function ProductionTab({ user, findCatalogItem }) {
     }
   };
 
-  // Helper para rolar até a seção (se optarmos por scroll em vez de filtro rígido)
-  const scrollToStatus = (statusId) => {
-    setActiveStatusFilter(statusId); // Ou use isso para filtrar
-    const element = document.getElementById(`status-section-${statusId}`);
-    if (element) {
-      element.scrollIntoView({ behavior: "smooth" });
-    }
-  };
-
   if (loading)
     return (
       <div className="p-10 text-center text-slate-500">
@@ -185,9 +201,8 @@ export default function ProductionTab({ user, findCatalogItem }) {
     );
 
   return (
-    // 1. LAYOUT RESPONSIVO: Coluna no Mobile, Linha no PC
     <div className="flex flex-col md:flex-row h-[calc(100vh-64px)] w-full overflow-hidden bg-slate-50">
-      {/* --- MODAIS (Mantidos) --- */}
+      {/* --- MODAIS --- */}
       {printContent && (
         <TextModal
           content={printContent}
@@ -206,7 +221,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
         />
       )}
 
-      {/* --- SIDEBAR LATERAL (VISÍVEL APENAS NO DESKTOP) --- */}
+      {/* --- SIDEBAR LATERAL --- */}
       <aside className="hidden md:flex w-64 bg-white border-r border-slate-200 flex-col shrink-0 z-10 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100">
           <h2 className="font-bold text-slate-700 flex items-center gap-2">
@@ -226,7 +241,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
           >
             <span>VISÃO GERAL</span>
             <span className="bg-white/20 px-1.5 rounded text-[10px]">
-              {filteredOrders.length}
+              {finalFilteredOrders.length}
             </span>
           </button>
 
@@ -235,6 +250,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
           {/* Lista de Status Coloridos */}
           {KANBAN_ORDER.map((statusId) => {
             const config = PRODUCTION_STATUS_CONFIG[statusId];
+            // Conta os itens filtrados que caem neste status
             const count = groupedOrders[statusId]?.length || 0;
             const isActive = activeStatusFilter === statusId;
             const colorClass = config.color || "bg-slate-500";
@@ -267,9 +283,9 @@ export default function ProductionTab({ user, findCatalogItem }) {
         </div>
       </aside>
 
-      {/* --- ÁREA PRINCIPAL (DIREITA) --- */}
+      {/* --- ÁREA PRINCIPAL --- */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* ===> MENU MOBILE (NOVO: APARECE NO TOPO) <=== */}
+        {/* MENU MOBILE */}
         <div className="md:hidden bg-slate-100 border-b border-slate-200 p-3 shrink-0 z-20">
           <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
             <Layers size={12} /> Filtrar Processo:
@@ -280,7 +296,9 @@ export default function ProductionTab({ user, findCatalogItem }) {
               onChange={(e) => setActiveStatusFilter(e.target.value)}
               className="w-full appearance-none bg-white border border-slate-300 text-slate-800 text-sm font-bold rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-purple-500 shadow-sm"
             >
-              <option value="all">VISÃO GERAL ({filteredOrders.length})</option>
+              <option value="all">
+                VISÃO GERAL ({finalFilteredOrders.length})
+              </option>
               {KANBAN_ORDER.map((statusId) => (
                 <option key={statusId} value={statusId}>
                   {PRODUCTION_STATUS_CONFIG[statusId]?.label} (
@@ -288,24 +306,39 @@ export default function ProductionTab({ user, findCatalogItem }) {
                 </option>
               ))}
             </select>
-            {/* Ícone seta */}
             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
               <Filter size={14} />
             </div>
           </div>
         </div>
-        {/* ====================================================== */}
 
         {/* TOPO: Gráfico + Busca + Filtros */}
         <div className="bg-white border-b border-slate-200 p-4 shrink-0 space-y-4">
-          {/* Gráfico de Idade (Escondido em telas MUITO pequenas se quiser, ou mantido) */}
+          {/* Gráfico de Idade Clicável */}
           <div className="w-full hidden sm:block">
-            {" "}
-            {/* Exemplo: Só aparece em telas > 640px */}
-            <AgeChart orders={filteredOrders} />
+            {/* Passamos o handler de clique para o componente do gráfico */}
+            {/* IMPORTANTE: Você precisa atualizar o AgeChart.js para aceitar onClick também */}
+            <AgeChart
+              orders={baseFilteredOrders} // Passamos a base sem filtro de idade para o gráfico não "sumir" com as outras barras ao clicar
+              onBarClick={handleChartClick}
+              activeFilter={ageFilter}
+            />
+
+            {/* Feedback Visual do Filtro Ativo */}
+            {ageFilter && (
+              <div className="flex items-center justify-center mt-2">
+                <span className="bg-blue-100 text-blue-700 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-2">
+                  Filtro Ativo: {ageFilter.label}
+                  <button
+                    onClick={() => setAgeFilter(null)}
+                    className="hover:text-blue-900"
+                  >
+                    <CheckCircle size={12} />
+                  </button>
+                </span>
+              </div>
+            )}
           </div>
-          {/* Versão Mobile do Gráfico (Opcional, se quiser algo menor) */}
-          {/* ... */}
 
           {/* Toolbar */}
           <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
@@ -324,38 +357,17 @@ export default function ProductionTab({ user, findCatalogItem }) {
               />
             </div>
 
-            {/* Ações e Visualização */}
+            {/* Ações */}
             <div className="flex flex-wrap gap-2 w-full md:w-auto">
-              {/* Botões Lista/Kanban */}
-              <div className="flex bg-slate-100 p-1 rounded-lg">
-                <button
-                  onClick={() => setGroupBy("status")}
-                  className={`px-3 py-1.5 rounded text-xs font-bold transition-all flex items-center gap-1 ${
-                    groupBy === "status"
-                      ? "bg-white shadow text-blue-600"
-                      : "text-slate-500"
-                  }`}
-                >
-                  <LayoutList size={14} />{" "}
-                  <span className="hidden sm:inline">Lista</span>
-                </button>
-                <button
-                  onClick={() => setGroupBy("days")}
-                  className={`px-3 py-1.5 rounded text-xs font-bold transition-all flex items-center gap-1 ${
-                    groupBy === "days"
-                      ? "bg-white shadow text-blue-600"
-                      : "text-slate-500"
-                  }`}
-                >
-                  <Kanban size={14} />{" "}
-                  <span className="hidden sm:inline">Kanban</span>
-                </button>
+              {/* Botão Lista (Kanban foi removido) */}
+              <div className="hidden sm:block text-xs font-bold text-slate-400 uppercase tracking-wide pt-2">
+                Modo Lista
               </div>
 
               {/* BARRA DE AÇÕES EM MASSA */}
               {selectedOrders.size > 0 && (
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto animate-pulse-once mt-2 sm:mt-0">
-                  {/* 1. SELETOR DE STATUS (Mover) */}
+                  {/* SELETOR DE STATUS (Mover) */}
                   <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden h-9 flex-1 sm:flex-none">
                     <div className="bg-slate-100 px-3 py-2 border-r border-slate-200 text-xs font-bold text-slate-600 uppercase">
                       Mover
@@ -376,7 +388,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
                     </select>
                   </div>
 
-                  {/* 2. BOTÃO IMPRIMIR */}
+                  {/* BOTÃO IMPRIMIR */}
                   <button
                     onClick={handleBatchPrint}
                     className="h-9 flex items-center justify-center gap-2 bg-slate-800 text-white px-4 rounded-lg text-sm font-bold hover:bg-black transition-colors shadow-sm flex-1 sm:flex-none"

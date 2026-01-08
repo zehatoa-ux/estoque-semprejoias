@@ -17,10 +17,12 @@ export const PRODUCTION_STATUS_CONFIG = {
     label: "MODELAGEM",
     color: "bg-pink-300 text-pink-900 border-pink-400",
   },
-  FALTA_BANCA: {
+  // --- CORREÇÃO AQUI: Era FALTA_BANCA, agora é FALHA_BANCA ---
+  FALHA_BANCA: {
     label: "FALHA BANCA",
     color: "bg-red-500 text-white border-red-600",
   },
+  // -----------------------------------------------------------
   IMPRIMIR: {
     label: "IMPRIMIR",
     color: "bg-emerald-500 text-white border-emerald-600",
@@ -89,10 +91,9 @@ export const PRODUCTION_STATUS_CONFIG = {
 // Ordem do Kanban (Usado na Produção)
 export const KANBAN_ORDER = [
   "PEDIDO_MODIFICADO",
-
   "GRAVACAO",
   "MANUTENCAO",
-  "FALTA_BANCA",
+  "FALHA_BANCA", // <--- CORRIGIDO AQUI TAMBÉM (Era FALTA_BANCA)
   "VERIFICAR",
   "SOLICITACAO",
   "IMPRIMIR",

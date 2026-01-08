@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Layers,
   Check,
+  Square,
   X,
 } from "lucide-react";
 import DaysBadge from "./DaysBadge";
@@ -33,6 +34,7 @@ export default function ProductionListView({
   groupedOrders,
   selectedOrders,
   toggleSelect,
+  setSelectSet,
   setEditingOrder,
   handleDeleteOrder,
   handleMoveStatus,
@@ -74,7 +76,45 @@ export default function ProductionListView({
           label: statusId,
           color: "bg-gray-500 text-white",
         };
+        // --- NOVO: LÓGICA DE SELEÇÃO DE GRUPO ---
+        // 1. Verifica se TODOS estão marcados
+        const allSelected = items.every((order) =>
+          selectedOrders.has(order.id)
+        );
 
+        // 2. Função para alternar o grupo
+        const toggleGroup = () => {
+          // Precisamos atualizar o Set pai.
+          // Se a prop 'toggleSelect' só aceita ID único, isso vai ser difícil.
+          // O ideal é que o componente Pai passe uma função 'setSelectedOrders' ou 'handleBatchSelect'.
+
+          // SUPONDO que você pode passar a prop 'handleBatchSelect' do pai:
+          // Se não tiver, você vai ter que fazer um loop chamando toggleSelect (feio mas funciona)
+
+          const newSet = new Set(selectedOrders);
+          if (allSelected) {
+            items.forEach((i) => newSet.delete(i.id));
+          } else {
+            items.forEach((i) => newSet.add(i.id));
+          }
+
+          // AQUI ESTÁ O TRUQUE:
+          // Você precisa passar esse 'newSet' para o pai.
+          // Se o Pai é ProductionTab.js, passe a prop `setSelectedOrders={setSelectedOrders}` para cá.
+          if (setSelectSet) {
+            setSelectSet(newSet);
+          } else {
+            // Fallback: Tenta alternar um por um (pode ser lento)
+            items.forEach((i) => {
+              if (allSelected) {
+                if (selectedOrders.has(i.id)) toggleSelect(i.id);
+              } else {
+                if (!selectedOrders.has(i.id)) toggleSelect(i.id);
+              }
+            });
+          }
+        };
+        // ----------------------------------------
         return (
           <div
             key={statusId}
@@ -95,7 +135,25 @@ export default function ProductionListView({
               <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold border-b hidden md:table-header-group">
                 <tr>
                   <th className="px-4 py-2 w-10 text-center">
-                    <CheckSquare size={14} />
+                    <div className="flex items-center gap-3">
+                      {/* --- NOVO: CHECKBOX MESTRE --- */}
+                      <div
+                        className="bg-white/20 p-1 rounded hover:bg-white/30 cursor-pointer transition-colors"
+                        onClick={toggleGroup}
+                        title={allSelected ? "Desmarcar Grupo" : "Marcar Grupo"}
+                      >
+                        {allSelected ? (
+                          <CheckSquare size={16} />
+                        ) : (
+                          <Square size={16} />
+                        )}
+                      </div>
+                      {/* ----------------------------- */}
+
+                      <span>
+                        {config.label} ({items.length})
+                      </span>
+                    </div>
                   </th>
                   <th className="px-4 py-2 w-28 text-center">Prazo / Data</th>
                   <th className="px-4 py-2">Item</th>

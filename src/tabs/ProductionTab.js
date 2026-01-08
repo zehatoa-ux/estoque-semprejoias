@@ -409,6 +409,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
             findCatalogItem={findCatalogItem}
             onToggleTransit={handleToggleTransit}
             onUpdateDate={handleUpdateDate}
+            setSelectSet={setSelectedOrders}
           />
         </div>
       </main>

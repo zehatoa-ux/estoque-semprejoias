@@ -220,73 +220,85 @@ export default function ReservationsTab({
 
       {isCreating && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden transform transition-all scale-100">
+            {/* Header */}
             <div className="bg-purple-600 p-4 flex justify-between items-center text-white">
-              <h3 className="font-bold flex items-center gap-2">
-                <Plus size={20} /> Nova Reserva
+              <h3 className="font-bold flex items-center gap-2 text-lg">
+                <Plus size={22} /> Nova Reserva
               </h3>
               <button
                 onClick={() => setIsCreating(false)}
-                className="hover:bg-white/20 p-1 rounded transition-colors"
+                className="hover:bg-white/20 p-1.5 rounded-full transition-colors"
               >
                 <X size={20} />
               </button>
             </div>
+
             <form
               onSubmit={(e) => {
+                // Força quantidade 1 na criação manual
+                setResQty("1");
                 handleCreateReservation(e);
               }}
-              className="p-4 space-y-4"
+              className="p-6 space-y-5"
             >
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                  SKU
-                </label>
-                <input
-                  autoFocus
-                  type="text"
-                  className="w-full p-2 border rounded font-bold text-slate-700"
-                  value={resSku}
-                  onChange={(e) => setResSku(e.target.value)}
-                  placeholder="Ex: ANEL-01"
-                />
+              {/* Aviso Quantidade Única */}
+              <div className="bg-blue-50 text-blue-700 text-xs p-3 rounded-lg flex items-start gap-2 border border-blue-100">
+                <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                <p>
+                  A reserva será de <b>1 unidade</b>. Se precisar reservar mais
+                  itens, crie uma nova reserva após esta.
+                </p>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                  Quantidade
+
+              {/* Campo SKU */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-500 uppercase ml-1">
+                  SKU <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="number"
-                  className="w-full p-2 border rounded"
-                  value={resQty}
-                  onChange={(e) => setResQty(e.target.value)}
-                  min="1"
-                />
+                <div className="relative">
+                  <Package
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    size={18}
+                  />
+                  <input
+                    autoFocus
+                    type="text"
+                    className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl font-bold text-slate-700 focus:border-purple-500 focus:ring-4 focus:ring-purple-50 outline-none transition-all placeholder:text-slate-300"
+                    value={resSku}
+                    onChange={(e) => setResSku(e.target.value)}
+                    placeholder="Ex: ANEL-01"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                  Obs
+
+              {/* Campo Obs */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-500 uppercase ml-1">
+                  Observações / Cliente
                 </label>
                 <textarea
-                  className="w-full p-2 border rounded text-sm resize-none h-24"
+                  className="w-full p-3 border border-slate-200 rounded-xl text-sm resize-none h-24 focus:border-purple-500 focus:ring-4 focus:ring-purple-50 outline-none transition-all placeholder:text-slate-300"
                   value={resNote}
                   onChange={(e) => setResNote(e.target.value)}
-                  placeholder="Detalhes..."
+                  placeholder="Nome do cliente, detalhes do pedido..."
                 />
               </div>
-              <div className="pt-2 flex justify-end gap-2">
+
+              {/* Botões */}
+              <div className="pt-2 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setIsCreating(false)}
-                  className="px-4 py-2 border rounded text-sm font-bold"
+                  className="px-5 py-2.5 border border-slate-200 text-slate-500 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-purple-600 text-white rounded text-sm font-bold flex items-center gap-2"
+                  className="px-6 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-purple-700 shadow-lg shadow-purple-200 transition-all transform active:scale-95"
                 >
-                  <Save size={16} /> Salvar
+                  <Save size={18} /> Salvar Reserva
                 </button>
               </div>
             </form>

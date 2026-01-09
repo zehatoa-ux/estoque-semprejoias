@@ -83,12 +83,14 @@ export default function ProductionConversionModal({
   const safeSpecs = safeRes.specs || {};
 
   // --- 1. LÓGICA DE ESTOQUE INTELIGENTE ---
+  // --- 1. LÓGICA DE ESTOQUE INTELIGENTE (COM PRIORIDADE DE FASE) ---
   const stockItem = useMemo(() => {
     if (isEditing || !inventory || inventory.length === 0 || !safeRes.sku)
       return null;
+
     const targetSku = String(safeRes.sku).trim().toUpperCase();
 
-    // Prioridade: 1. Estoque Físico Real -> 2. Estoque Fábrica (PE) Disponível
+    // 1º Prioridade: Estoque Físico Real (Pronta Entrega)
     const realStock = inventory.find(
       (i) =>
         String(i.sku).trim().toUpperCase() === targetSku &&
@@ -96,8 +98,20 @@ export default function ProductionConversionModal({
         !i.isPE
     );
 
-    // Só pega PE se não tiver status de saída ou travado
-    const peStock = inventory.find(
+    // Se tiver físico, ele ganha sempre.
+    if (realStock) return realStock;
+
+    // 2º Prioridade: Produção de Estoque (PE) - O mais avançado vence
+    // Mapa de Pontuação (Quanto maior, mais avançado/prioritário)
+    const PRIORITY_MAP = {
+      pe_conferencia: 4, // Ouro: Quase pronto
+      pe_fundicao: 3, // Prata: Já fundiu
+      pe_imprimindo: 2, // Bronze: Sendo feito
+      pe_solicitado: 1, // Latão: Só pedido
+    };
+
+    // Filtra todos os candidatos PE elegíveis (mesmo SKU, não interceptado)
+    const peCandidates = inventory.filter(
       (i) =>
         String(i.sku).trim().toUpperCase() === targetSku &&
         i.isPE &&
@@ -105,9 +119,16 @@ export default function ProductionConversionModal({
         i.status !== "adjusted_out"
     );
 
-    return realStock || peStock || null;
-  }, [inventory, safeRes.sku, isEditing]);
+    // Ordena: Maior prioridade primeiro (Decrescente: 4 > 3 > 2 > 1)
+    peCandidates.sort((a, b) => {
+      const scoreA = PRIORITY_MAP[a.status] || 0;
+      const scoreB = PRIORITY_MAP[b.status] || 0;
+      return scoreB - scoreA;
+    });
 
+    // Retorna o campeão (o mais avançado) ou null se não tiver nenhum
+    return peCandidates[0] || null;
+  }, [inventory, safeRes.sku, isEditing]);
   const hasStock = !!stockItem;
   const isPEItem = stockItem?.isPE || false;
 

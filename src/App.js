@@ -61,6 +61,7 @@ import OrdersTab from "./tabs/OrdersTab";
 import StockTab from "./tabs/StockTab";
 import StockProductionTab from "./tabs/StockProductionTab";
 import ArchivedTab from "./tabs/ArchivedTab";
+import TransitTab from "./tabs/TransitTab"; // <--- NOVO
 
 // Hooks e Services
 import { useCatalog } from "./hooks/useCatalog";
@@ -622,6 +623,9 @@ function InventorySystem() {
         )}
         {activeTab === "stock_production" && hasAccess("stock") && (
           <StockProductionTab user={user} findCatalogItem={findCatalogItem} />
+        )}
+        {activeTab === "transit" && hasAccess("production") && (
+          <TransitTab findCatalogItem={findCatalogItem} />
         )}
       </div>
     </Layout>

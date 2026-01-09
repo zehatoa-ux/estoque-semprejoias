@@ -12,30 +12,38 @@ import {
   X,
   Archive,
   User,
+  Boxes,
+  Clipboard,
+  ArrowUp, // <--- Importado para a aba Trânsito
 } from "lucide-react";
 
+// Mapeamento de Ícones
 const TAB_ICONS = {
   stock: ClipboardList,
   conference: Barcode,
   reservations: Bookmark,
   production: Factory,
   orders: Truck,
+  transit: ArrowUp, // <--- NOVO ÍCONE
+  stock_production: Boxes, // Reusando Factory para Fábrica Estoque (ou pode usar outro)
   sales: Upload,
-  reports: BarChart2,
+  reports: Clipboard,
   archived: Archive,
   config: Settings,
 };
 
+// Mapeamento de Labels (Define a ordem do menu)
 export const TAB_LABELS = {
   stock: "ESTOQUE",
   reservations: "RESERVAS",
   production: "PRODUÇÃO",
-  orders: "PEDIDOS LOG.",
+  orders: "PEDIDOS LOG.", // <--- NOVA ABA ADICIONADA AQUI
   stock_production: "FÁBRICA ESTOQUE",
-  reports: "RELATÓRIOS",
   conference: "CONFERÊNCIA",
   sales: "BAIXA",
   archived: "ARQUIVO",
+  transit: "TRÂNSITO",
+  reports: "LOGS",
   config: "CONFIG",
 };
 
@@ -103,7 +111,7 @@ export default function Sidebar({
             >
               <h1 className="font-bold text-sm leading-tight">GESTÃO</h1>
               <span className="text-[10px] text-slate-400">
-                Sempre Joias v0.97
+                Sempre Joias v0.98
               </span>
             </div>
           </div>
@@ -146,7 +154,20 @@ export default function Sidebar({
         {/* Navegação */}
         <nav className="flex-1 overflow-y-auto py-4 space-y-1 px-2 custom-scrollbar overflow-x-hidden">
           {Object.keys(TAB_LABELS).map((tab) => {
-            if (!hasAccess(tab)) return null;
+            // Verifica permissão (quem acessa 'production' acessa 'transit' também, geralmente)
+            // Se você quiser uma permissão específica para trânsito, crie no AuthContext.
+            // Por enquanto, vou assumir que segue a mesma lógica das outras.
+            if (!hasAccess(tab)) {
+              // EXCEÇÃO: Se for 'transit', vamos permitir se tiver acesso a 'production' ou 'orders'
+              if (
+                tab === "transit" &&
+                (hasAccess("production") || hasAccess("orders"))
+              ) {
+                // Permite renderizar
+              } else {
+                return null;
+              }
+            }
 
             const Icon = TAB_ICONS[tab] || ClipboardList;
             const isActive = activeTab === tab;

@@ -33,6 +33,9 @@ import { useOrderProcessing } from "../hooks/useOrderProcessing";
 import { useOrdersData } from "../hooks/useOrdersData";
 import { useOrderActions } from "../hooks/useOrderActions";
 import { useAuth } from "../contexts/AuthContext";
+import TransitToggle from "../components/production/TransitToggle"; // <--- NOVO
+import { productionService } from "../services/productionService"; // <--- NOVO
+import { logAction, MODULES, getSafeUser } from "../services/logService"; // <--- NOVO
 
 // Configs
 import {
@@ -198,6 +201,37 @@ export default function OrdersTab({ findCatalogItem }) {
     if (successPDF) {
       await actions.markAsPrinted(itemsToPrint);
       setSelectedItems(new Set());
+    }
+  };
+  // --- NOVO HANDLER COM LOG ---
+  const handleToggleTransit = async (item, direction) => {
+    try {
+      // Se já estiver na direção clicada, remove (null), senão define a nova direção
+      const newStatus = item.transit_status === direction ? null : direction;
+
+      // 1. Atualiza no Banco
+      await productionService.toggleTransit(item.id, newStatus, user?.name);
+
+      // 2. Registra no Log (Auditoria)
+      // --- CORREÇÃO AQUI: Verifica se é "subindo" em vez de "UP" ---
+      const actionText = newStatus
+        ? `Marcou trânsito: ${
+            newStatus === "subindo"
+              ? "SUBINDO (Escritório)"
+              : "DESCENDO (Fábrica)"
+          }`
+        : "Removeu marcação de trânsito";
+
+      await logAction(
+        getSafeUser(user),
+        MODULES.LOGISTICA,
+        "TRANSITO",
+        `${actionText} - Item ${item.sku}`,
+        { itemId: item.id, sku: item.sku, newTransitStatus: newStatus }
+      );
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao alterar trânsito: " + error.message);
     }
   };
 
@@ -757,6 +791,14 @@ export default function OrdersTab({ findCatalogItem }) {
                                                 {subItem.specs.engraving}"
                                               </div>
                                             )}
+                                            {/* --- AQUI ENTRA O TOGGLE --- */}
+                                            <div className="mr-2">
+                                              <TransitToggle
+                                                order={subItem}
+                                                onToggle={handleToggleTransit}
+                                              />
+                                            </div>
+                                            {/* --------------------------- */}
                                           </div>
                                         </div>
 

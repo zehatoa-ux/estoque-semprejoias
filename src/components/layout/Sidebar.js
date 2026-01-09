@@ -109,9 +109,11 @@ export default function Sidebar({
                 }
               `}
             >
-              <h1 className="font-bold text-sm leading-tight">GESTÃO</h1>
+              <h1 className="font-bold text-sm leading-tight">
+                Gestão de Processos
+              </h1>
               <span className="text-[10px] text-slate-400">
-                Sempre Joias v0.98
+                Sempre Joias v0.99
               </span>
             </div>
           </div>

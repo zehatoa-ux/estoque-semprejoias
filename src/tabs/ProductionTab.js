@@ -7,22 +7,22 @@ import {
   Layers,
   CheckCircle,
   LayoutList,
-  ArrowUpCircle, // <--- NOVO
-  ArrowDownCircle, // <--- NOVO
-  // Kanban, // REMOVIDO: Botão Kanban não será mais usado
+  ArrowUpCircle,
+  ArrowDownCircle,
+  X, // Faltava importar o X para fechar a barra flutuante
 } from "lucide-react";
 
 // Hooks
 import {
   useProductionOrders,
-  useProductionStats,
+  // useProductionStats,
 } from "../hooks/useProductionData";
 import { useProductionFilter } from "../hooks/useProductionFilter";
 import { useProductionGrouping } from "../hooks/useProductionGrouping";
-import { logAction, MODULES, getSafeUser } from "../services/logService";
 
 // Services e Config
 import { productionService } from "../services/productionService";
+import { logAction, MODULES, getSafeUser } from "../services/logService"; // <--- IMPORTS DE LOG
 import {
   PRODUCTION_STATUS_CONFIG,
   KANBAN_ORDER,
@@ -38,32 +38,29 @@ import ProductionConversionModal from "../components/modals/ProductionConversion
 export default function ProductionTab({ user, findCatalogItem }) {
   // 1. Dados (Hooks)
   const { orders, loading } = useProductionOrders();
-  // const stats = useProductionStats(); // (Opcional, já temos AgeChart)
 
   // 2. Estados Locais
   const [filterText, setFilterText] = useState("");
   const [activeStatusFilter, setActiveStatusFilter] = useState("all");
-  const [groupBy, setGroupBy] = useState("status"); // 'status' (Padrão)
+  const [groupBy, setGroupBy] = useState("status");
 
-  // --- NOVO: Estado para Filtro de Idade (Vindo do Gráfico) ---
-  const [ageFilter, setAgeFilter] = useState(null); // null | { min, max }
+  // Estado para Filtro de Idade (Vindo do Gráfico)
+  const [ageFilter, setAgeFilter] = useState(null);
 
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [editingOrder, setEditingOrder] = useState(null);
   const [printContent, setPrintContent] = useState(null);
 
   // 3. Processamento (Filtros em Cascata)
-  // Passo A: Filtra por Texto e Status
   const baseFilteredOrders = useProductionFilter(
     orders,
     filterText,
-    "all", // Filtramos visualmente depois para manter o contador total correto na sidebar
+    "all",
     findCatalogItem
   );
 
-  // Passo B: Filtra por Idade (Se clicou no gráfico)
   const finalFilteredOrders = baseFilteredOrders.filter((order) => {
-    if (!ageFilter) return true; // Sem filtro de idade
+    if (!ageFilter) return true;
 
     const now = new Date();
     const created = order.customCreatedAt
@@ -72,11 +69,9 @@ export default function ProductionTab({ user, findCatalogItem }) {
       ? order.createdAt.toDate()
       : new Date();
 
-    // Diferença em dias úteis (simplificado para dias corridos para performance, ou use helper)
     const diffTime = Math.abs(now - created);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    // Lógica simples: "Mais de X dias" significa dia atual > dia limite
     if (ageFilter.min !== undefined && diffDays < ageFilter.min) return false;
     if (ageFilter.max !== undefined && diffDays > ageFilter.max) return false;
 
@@ -85,7 +80,9 @@ export default function ProductionTab({ user, findCatalogItem }) {
 
   const groupedOrders = useProductionGrouping(finalFilteredOrders, groupBy);
 
-  // --- HANDLERS ---
+  // --- HANDLERS COM LOGS ---
+
+  // 1. TRÂNSITO EM MASSA
   const handleBulkTransit = async (direction) => {
     const label =
       direction === "subindo" ? "SUBINDO (Escritório)" : "DESCENDO (Fábrica)";
@@ -99,15 +96,13 @@ export default function ProductionTab({ user, findCatalogItem }) {
     }
 
     try {
-      // Cria uma lista de promessas para executar tudo "ao mesmo tempo"
       const updatePromises = Array.from(selectedOrders).map(async (orderId) => {
         const order = orders.find((o) => o.id === orderId);
         if (!order) return;
 
-        // 1. Atualiza no Banco (Força a direção)
         await productionService.toggleTransit(order.id, direction, user?.name);
 
-        // 2. Log Individual (Importante para rastreabilidade)
+        // LOG
         await logAction(
           getSafeUser(user),
           MODULES.PRODUCAO,
@@ -117,12 +112,8 @@ export default function ProductionTab({ user, findCatalogItem }) {
         );
       });
 
-      // Espera tudo terminar
       await Promise.all(updatePromises);
-
-      // Limpa a seleção e avisa
       setSelectedOrders(new Set());
-      // Se você tiver um toast/notification na ProductionTab, use aqui. Se não, use alert.
       alert(`Trânsito atualizado para ${selectedOrders.size} itens!`);
     } catch (error) {
       console.error("Erro no trânsito em massa:", error);
@@ -130,9 +121,178 @@ export default function ProductionTab({ user, findCatalogItem }) {
     }
   };
 
-  // NOVO: Handler ao clicar no gráfico
+  // 2. MOVER STATUS INDIVIDUAL
+  const handleMoveStatus = async (orderId, newStatus) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    try {
+      await productionService.updateStatus(
+        orderId,
+        newStatus,
+        order.status,
+        user?.name
+      );
+
+      // LOG
+      await logAction(
+        getSafeUser(user),
+        MODULES.PRODUCAO,
+        "MOVER_STATUS",
+        `Moveu ${order.sku} de "${order.status}" para "${newStatus}"`,
+        { itemId: orderId, oldStatus: order.status, newStatus }
+      );
+    } catch (error) {
+      alert("Erro ao mover: " + error.message);
+    }
+  };
+
+  // 3. EXCLUIR PEDIDO
+  const handleDeleteOrder = async (order) => {
+    if (!window.confirm(`Excluir pedido ${order.order?.number || order.sku}?`))
+      return;
+    try {
+      await productionService.deleteOrder(order.id);
+
+      // LOG
+      await logAction(
+        getSafeUser(user),
+        MODULES.PRODUCAO,
+        "EXCLUIR_PEDIDO",
+        `Excluiu definitivamente o pedido ${order.sku}`,
+        { itemId: order.id, sku: order.sku, data: order }
+      );
+    } catch (error) {
+      alert("Erro ao excluir: " + error.message);
+    }
+  };
+
+  // 4. TOGGLE TRÂNSITO INDIVIDUAL
+  const handleToggleTransit = async (order, direction) => {
+    try {
+      const newStatus = order.transit_status === direction ? null : direction;
+      await productionService.toggleTransit(order.id, newStatus, user?.name);
+
+      // LOG
+      const actionText = newStatus
+        ? `Marcou trânsito: ${newStatus === "subindo" ? "SUBINDO" : "DESCENDO"}`
+        : "Removeu marcação de trânsito";
+
+      await logAction(
+        getSafeUser(user),
+        MODULES.PRODUCAO,
+        "TRANSITO",
+        `${actionText} - Item ${order.sku}`,
+        { itemId: order.id, newStatus }
+      );
+    } catch (error) {
+      alert("Erro no trânsito: " + error.message);
+    }
+  };
+
+  // 5. IMPRESSÃO EM LOTE
+  const handleBatchPrint = async () => {
+    if (selectedOrders.size === 0) return;
+    const items = orders.filter((o) => selectedOrders.has(o.id));
+    const text = formatProductionTicket(items);
+    setPrintContent(text);
+
+    await productionService.markBatchAsPrinted(Array.from(selectedOrders));
+
+    // LOG
+    await logAction(
+      getSafeUser(user),
+      MODULES.PRODUCAO,
+      "IMPRIMIR_LOTE",
+      `Gerou ticket de produção para ${items.length} itens`,
+      { itemIds: Array.from(selectedOrders) }
+    );
+
+    setSelectedOrders(new Set());
+  };
+
+  // 6. MOVER EM MASSA
+  const handleBatchMove = async (newStatus) => {
+    if (!newStatus) return;
+    const label = PRODUCTION_STATUS_CONFIG[newStatus]?.label || newStatus;
+    const confirmMessage = `Tem certeza que deseja mover ${selectedOrders.size} pedidos para "${label}"?`;
+    if (!window.confirm(confirmMessage)) return;
+
+    try {
+      const promises = Array.from(selectedOrders).map(async (orderId) => {
+        const order = orders.find((o) => o.id === orderId);
+        if (order) {
+          await productionService.updateStatus(
+            orderId,
+            newStatus,
+            order.status,
+            user?.name || "Admin"
+          );
+
+          // LOG INDIVIDUAL
+          await logAction(
+            getSafeUser(user),
+            MODULES.PRODUCAO,
+            "MOVER_MASSA",
+            `Lote: Moveu ${order.sku} para ${label}`,
+            { itemId: orderId, oldStatus: order.status, newStatus }
+          );
+        }
+      });
+
+      await Promise.all(promises);
+      setSelectedOrders(new Set());
+      alert("Movimentação em massa concluída!");
+    } catch (error) {
+      console.error("Erro no lote:", error);
+      alert("Erro ao mover alguns pedidos. Verifique o console.");
+    }
+  };
+
+  // 7. SALVAR SPECS (EDIÇÃO)
+  const handleSaveSpecs = async (data) => {
+    try {
+      await productionService.updateSpecs(data.id, data.specs, user?.name);
+
+      // LOG
+      await logAction(
+        getSafeUser(user),
+        MODULES.PRODUCAO,
+        "EDITAR_SPECS",
+        `Editou especificações do item ${data.id}`,
+        { itemId: data.id, newSpecs: data.specs }
+      );
+
+      setEditingOrder(null);
+    } catch (error) {
+      alert("Erro ao salvar specs: " + error.message);
+    }
+  };
+
+  // 8. ATUALIZAR DATA
+  const handleUpdateDate = async (orderId, newDate) => {
+    try {
+      await productionService.updateOrderField(
+        orderId,
+        "customCreatedAt",
+        newDate,
+        user?.name || "Admin"
+      );
+
+      // LOG
+      await logAction(
+        getSafeUser(user),
+        MODULES.PRODUCAO,
+        "ALTERAR_DATA",
+        `Alterou data do pedido ${orderId} para ${newDate}`,
+        { itemId: orderId, newDate }
+      );
+    } catch (error) {
+      alert("Erro ao atualizar data: " + error.message);
+    }
+  };
+
+  // --- OUTROS HANDLERS DE UI ---
   const handleChartClick = (range) => {
-    // Se clicar no mesmo, limpa o filtro (toggle)
     if (ageFilter && ageFilter.label === range.label) {
       setAgeFilter(null);
     } else {
@@ -145,98 +305,6 @@ export default function ProductionTab({ user, findCatalogItem }) {
     if (newSet.has(id)) newSet.delete(id);
     else newSet.add(id);
     setSelectedOrders(newSet);
-  };
-
-  const handleMoveStatus = async (orderId, newStatus) => {
-    const order = orders.find((o) => o.id === orderId);
-    if (!order) return;
-    try {
-      await productionService.updateStatus(
-        orderId,
-        newStatus,
-        order.status,
-        user?.name
-      );
-    } catch (error) {
-      alert("Erro ao mover: " + error.message);
-    }
-  };
-
-  const handleDeleteOrder = async (order) => {
-    if (!window.confirm(`Excluir pedido ${order.order?.number || order.sku}?`))
-      return;
-    try {
-      await productionService.deleteOrder(order.id);
-    } catch (error) {
-      alert("Erro ao excluir: " + error.message);
-    }
-  };
-
-  const handleToggleTransit = async (order, direction) => {
-    try {
-      const newStatus = order.transit_status === direction ? null : direction;
-      await productionService.toggleTransit(order.id, newStatus, user?.name);
-    } catch (error) {
-      alert("Erro no trânsito: " + error.message);
-    }
-  };
-
-  const handleBatchPrint = () => {
-    if (selectedOrders.size === 0) return;
-    const items = orders.filter((o) => selectedOrders.has(o.id));
-    const text = formatProductionTicket(items);
-    setPrintContent(text);
-    productionService.markBatchAsPrinted(Array.from(selectedOrders));
-    setSelectedOrders(new Set());
-  };
-
-  // Handler para Movimentação em Massa
-  const handleBatchMove = async (newStatus) => {
-    if (!newStatus) return;
-    const confirmMessage = `Tem certeza que deseja mover ${selectedOrders.size} pedidos para "${PRODUCTION_STATUS_CONFIG[newStatus]?.label}"?`;
-    if (!window.confirm(confirmMessage)) return;
-
-    try {
-      const promises = Array.from(selectedOrders).map(async (orderId) => {
-        const order = orders.find((o) => o.id === orderId);
-        if (order) {
-          return productionService.updateStatus(
-            orderId,
-            newStatus,
-            order.status,
-            user?.name || "Admin"
-          );
-        }
-      });
-      await Promise.all(promises);
-      setSelectedOrders(new Set());
-      alert("Movimentação em massa concluída!");
-    } catch (error) {
-      console.error("Erro no lote:", error);
-      alert("Erro ao mover alguns pedidos. Verifique o console.");
-    }
-  };
-
-  const handleSaveSpecs = async (data) => {
-    try {
-      await productionService.updateSpecs(data.id, data.specs, user?.name);
-      setEditingOrder(null);
-    } catch (error) {
-      alert("Erro ao salvar specs: " + error.message);
-    }
-  };
-
-  const handleUpdateDate = async (orderId, newDate) => {
-    try {
-      await productionService.updateOrderField(
-        orderId,
-        "customCreatedAt",
-        newDate,
-        user?.name || "Admin"
-      );
-    } catch (error) {
-      alert("Erro ao atualizar data: " + error.message);
-    }
   };
 
   if (loading)
@@ -276,7 +344,6 @@ export default function ProductionTab({ user, findCatalogItem }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
-          {/* Botão "Todos" */}
           <button
             onClick={() => setActiveStatusFilter("all")}
             className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex justify-between items-center ${
@@ -293,10 +360,8 @@ export default function ProductionTab({ user, findCatalogItem }) {
 
           <div className="h-px bg-slate-200 my-2"></div>
 
-          {/* Lista de Status Coloridos */}
           {KANBAN_ORDER.map((statusId) => {
             const config = PRODUCTION_STATUS_CONFIG[statusId];
-            // Conta os itens filtrados que caem neste status
             const count = groupedOrders[statusId]?.length || 0;
             const isActive = activeStatusFilter === statusId;
             const colorClass = config.color || "bg-slate-500";
@@ -358,19 +423,14 @@ export default function ProductionTab({ user, findCatalogItem }) {
           </div>
         </div>
 
-        {/* TOPO: Gráfico + Busca + Filtros */}
+        {/* TOPO */}
         <div className="bg-white border-b border-slate-200 p-4 shrink-0 space-y-4">
-          {/* Gráfico de Idade Clicável */}
           <div className="w-full hidden sm:block">
-            {/* Passamos o handler de clique para o componente do gráfico */}
-            {/* IMPORTANTE: Você precisa atualizar o AgeChart.js para aceitar onClick também */}
             <AgeChart
-              orders={baseFilteredOrders} // Passamos a base sem filtro de idade para o gráfico não "sumir" com as outras barras ao clicar
+              orders={baseFilteredOrders}
               onBarClick={handleChartClick}
               activeFilter={ageFilter}
             />
-
-            {/* Feedback Visual do Filtro Ativo */}
             {ageFilter && (
               <div className="flex items-center justify-center mt-2">
                 <span className="bg-blue-100 text-blue-700 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-2">
@@ -386,9 +446,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
             )}
           </div>
 
-          {/* Toolbar */}
           <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
-            {/* Busca */}
             <div className="relative flex-1 w-full md:max-w-md">
               <Search
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -403,74 +461,80 @@ export default function ProductionTab({ user, findCatalogItem }) {
               />
             </div>
 
-            {/* Ações */}
             <div className="flex flex-wrap gap-2 w-full md:w-auto">
-              {/* Botão Lista (Kanban foi removido) */}
               <div className="hidden sm:block text-xs font-bold text-slate-400 uppercase tracking-wide pt-2">
                 Modo Lista
               </div>
 
-              {/* BARRA DE AÇÕES EM MASSA */}
+              {/* BARRA DE AÇÕES EM MASSA FLUTUANTE */}
               {selectedOrders.size > 0 && (
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto animate-pulse-once mt-2 sm:mt-0">
-                  {/* SELETOR DE STATUS (Mover) */}
-                  <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden h-9 flex-1 sm:flex-none">
-                    <div className="bg-slate-100 px-3 py-2 border-r border-slate-200 text-xs font-bold text-slate-600 uppercase">
-                      Mover
-                    </div>
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl z-50 flex items-center gap-6 animate-slide-up border border-slate-700">
+                  <span className="font-bold text-sm bg-slate-700 px-3 py-1 rounded-full">
+                    {selectedOrders.size} selecionados
+                  </span>
+
+                  <div className="h-6 w-px bg-slate-600"></div>
+
+                  <div className="flex items-center bg-white/10 rounded-lg overflow-hidden h-8">
                     <select
-                      className="pl-2 pr-8 py-1 text-sm bg-transparent outline-none cursor-pointer text-slate-700 font-medium hover:bg-slate-50 h-full w-full sm:w-40 appearance-none"
+                      className="pl-2 pr-4 py-1 text-sm bg-transparent outline-none cursor-pointer text-white font-bold h-full appearance-none hover:bg-white/20 transition-colors"
                       onChange={(e) => handleBatchMove(e.target.value)}
                       value=""
                     >
-                      <option value="" disabled>
-                        Selecione...
+                      <option value="" disabled className="text-slate-800">
+                        Mover para...
                       </option>
                       {KANBAN_ORDER.map((statusKey) => (
-                        <option key={statusKey} value={statusKey}>
+                        <option
+                          key={statusKey}
+                          value={statusKey}
+                          className="text-slate-800"
+                        >
                           {PRODUCTION_STATUS_CONFIG[statusKey]?.label}
                         </option>
                       ))}
                     </select>
                   </div>
-                  {/* --- NOVOS BOTÕES DE TRÂNSITO --- */}
+
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleBulkTransit("descendo")}
                       className="flex items-center gap-2 hover:text-orange-400 transition-colors group"
-                      title="Enviar Selecionados para Fábrica"
+                      title="Enviar para Fábrica"
                     >
                       <ArrowDownCircle
-                        size={20}
+                        size={24}
                         className="group-hover:animate-bounce"
                       />
-                      <span className="text-xs font-bold uppercase hidden md:inline">
-                        Descer
-                      </span>
                     </button>
 
                     <button
                       onClick={() => handleBulkTransit("subindo")}
                       className="flex items-center gap-2 hover:text-indigo-400 transition-colors group"
-                      title="Enviar Selecionados para Escritório"
+                      title="Enviar para Escritório"
                     >
                       <ArrowUpCircle
-                        size={20}
+                        size={24}
                         className="group-hover:animate-bounce"
                       />
-                      <span className="text-xs font-bold uppercase hidden md:inline">
-                        Subir
-                      </span>
                     </button>
                   </div>
-                  {/* -------------------------------- */}
-                  {/* BOTÃO IMPRIMIR */}
+
+                  <div className="h-6 w-px bg-slate-600"></div>
+
                   <button
                     onClick={handleBatchPrint}
-                    className="h-9 flex items-center justify-center gap-2 bg-slate-800 text-white px-4 rounded-lg text-sm font-bold hover:bg-black transition-colors shadow-sm flex-1 sm:flex-none"
+                    className="hover:text-blue-400 transition-colors"
+                    title="Imprimir Selecionados"
                   >
-                    <Printer size={16} />
-                    <span>Imprimir ({selectedOrders.size})</span>
+                    <Printer size={20} />
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedOrders(new Set())}
+                    className="ml-2 hover:bg-slate-700 p-1 rounded-full text-slate-400 hover:text-white"
+                  >
+                    <X size={18} />
                   </button>
                 </div>
               )}
@@ -478,7 +542,7 @@ export default function ProductionTab({ user, findCatalogItem }) {
           </div>
         </div>
 
-        {/* ÁREA DE SCROLL DA LISTA */}
+        {/* LISTA */}
         <div className="flex-1 overflow-y-auto p-2 md:p-4 custom-scrollbar bg-slate-50/50">
           <ProductionListView
             groupedOrders={

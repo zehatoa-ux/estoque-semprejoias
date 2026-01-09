@@ -7,6 +7,8 @@ import {
   Layers,
   CheckCircle,
   LayoutList,
+  ArrowUpCircle, // <--- NOVO
+  ArrowDownCircle, // <--- NOVO
   // Kanban, // REMOVIDO: Botão Kanban não será mais usado
 } from "lucide-react";
 
@@ -17,6 +19,7 @@ import {
 } from "../hooks/useProductionData";
 import { useProductionFilter } from "../hooks/useProductionFilter";
 import { useProductionGrouping } from "../hooks/useProductionGrouping";
+import { logAction, MODULES, getSafeUser } from "../services/logService";
 
 // Services e Config
 import { productionService } from "../services/productionService";
@@ -83,6 +86,49 @@ export default function ProductionTab({ user, findCatalogItem }) {
   const groupedOrders = useProductionGrouping(finalFilteredOrders, groupBy);
 
   // --- HANDLERS ---
+  const handleBulkTransit = async (direction) => {
+    const label =
+      direction === "subindo" ? "SUBINDO (Escritório)" : "DESCENDO (Fábrica)";
+
+    if (
+      !window.confirm(
+        `Confirmar envio de ${selectedOrders.size} itens para: ${label}?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      // Cria uma lista de promessas para executar tudo "ao mesmo tempo"
+      const updatePromises = Array.from(selectedOrders).map(async (orderId) => {
+        const order = orders.find((o) => o.id === orderId);
+        if (!order) return;
+
+        // 1. Atualiza no Banco (Força a direção)
+        await productionService.toggleTransit(order.id, direction, user?.name);
+
+        // 2. Log Individual (Importante para rastreabilidade)
+        await logAction(
+          getSafeUser(user),
+          MODULES.PRODUCAO,
+          "TRANSITO_MASSA",
+          `Lote: Marcou ${label} - Item ${order.sku}`,
+          { itemId: order.id, sku: order.sku, direction }
+        );
+      });
+
+      // Espera tudo terminar
+      await Promise.all(updatePromises);
+
+      // Limpa a seleção e avisa
+      setSelectedOrders(new Set());
+      // Se você tiver um toast/notification na ProductionTab, use aqui. Se não, use alert.
+      alert(`Trânsito atualizado para ${selectedOrders.size} itens!`);
+    } catch (error) {
+      console.error("Erro no trânsito em massa:", error);
+      alert("Erro ao atualizar alguns itens.");
+    }
+  };
 
   // NOVO: Handler ao clicar no gráfico
   const handleChartClick = (range) => {
@@ -387,7 +433,37 @@ export default function ProductionTab({ user, findCatalogItem }) {
                       ))}
                     </select>
                   </div>
+                  {/* --- NOVOS BOTÕES DE TRÂNSITO --- */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleBulkTransit("descendo")}
+                      className="flex items-center gap-2 hover:text-orange-400 transition-colors group"
+                      title="Enviar Selecionados para Fábrica"
+                    >
+                      <ArrowDownCircle
+                        size={20}
+                        className="group-hover:animate-bounce"
+                      />
+                      <span className="text-xs font-bold uppercase hidden md:inline">
+                        Descer
+                      </span>
+                    </button>
 
+                    <button
+                      onClick={() => handleBulkTransit("subindo")}
+                      className="flex items-center gap-2 hover:text-indigo-400 transition-colors group"
+                      title="Enviar Selecionados para Escritório"
+                    >
+                      <ArrowUpCircle
+                        size={20}
+                        className="group-hover:animate-bounce"
+                      />
+                      <span className="text-xs font-bold uppercase hidden md:inline">
+                        Subir
+                      </span>
+                    </button>
+                  </div>
+                  {/* -------------------------------- */}
                   {/* BOTÃO IMPRIMIR */}
                   <button
                     onClick={handleBatchPrint}

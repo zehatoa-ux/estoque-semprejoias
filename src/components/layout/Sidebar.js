@@ -37,7 +37,7 @@ export const TAB_LABELS = {
   stock: "ESTOQUE",
   reservations: "RESERVAS",
   production: "PRODUÇÃO",
-  orders: "PEDIDOS LOG.", // <--- NOVA ABA ADICIONADA AQUI
+  orders: "PEDIDOS", // <--- NOVA ABA ADICIONADA AQUI
   stock_production: "FÁBRICA ESTOQUE",
   conference: "CONFERÊNCIA",
   sales: "BAIXA",
